@@ -1,31 +1,22 @@
+﻿"""Spidey AI - Main Entry Point"""
+
 from fastapi import FastAPI
+from src.api.routes import router
+from src.core.config import settings
+from src.utils.logger import spidey_logger
 
 app = FastAPI(
-    title="Spidey AI",
-    description="60-Day Roadmap - Day 4"
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    description=settings.APP_DESCRIPTION
 )
 
+app.include_router(router)
 
-@app.get("/")
-def root():
-    return {
-        "message": "Spidey is waking up!",
-        "status": "active",
-        "day": 4
-    }
+@app.on_event("startup")
+async def startup_event():
+    spidey_logger.info(f"Spidey AI v{settings.APP_VERSION} starting up...")
 
-
-@app.get("/health")
-def health_check():
-    return {"status": "Database & Systems Normal"}
-
-
-@app.get("/about")
-def about():
-    return {
-        "name": "Spidey AI",
-        "creator": "Kashan",
-        "version": "0.1",
-        "tech_stack": ["Python", "FastAPI", "OpenAI"],
-        "mission": "Personal AI assistant"
-    }
+@app.on_event("shutdown")
+async def shutdown_event():
+    spidey_logger.info("Spidey AI shutting down...")
