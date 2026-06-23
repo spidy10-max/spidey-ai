@@ -3,11 +3,15 @@ Spidey AI — Multi-Provider System
 Switch between different AI providers easily!
 Supported: Groq, OpenAI, DeepSeek, Ollama
 """
-import openai
 import os
+import openai
 from dotenv import load_dotenv
 
 load_dotenv()
+
+from spidey.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 # All available providers and their settings
@@ -81,22 +85,23 @@ class AIProvider:
 
         self.provider_name = provider_name
         self.config = PROVIDERS[provider_name]
+        logger.info("Initializing AIProvider: %s", provider_name)
         self.client = self._create_client()
 
     def _create_client(self):
         """Create OpenAI-compatible client for this provider"""
-        # Get API key
         api_key_env = self.config["api_key_env"]
 
         if api_key_env:
             api_key = os.getenv(api_key_env)
             if not api_key:
+                logger.error("Missing API key for provider %s (%s)", self.provider_name, api_key_env)
                 raise ValueError(
                     f"API key not found! Set {api_key_env} in your .env file"
                 )
         else:
-            # Ollama doesn't need API key
             api_key = "ollama"
+            logger.debug("Using local Ollama provider without API key")
 
         return openai.OpenAI(
             api_key=api_key,
@@ -115,6 +120,15 @@ class AIProvider:
         Returns:
             dict with 'content', 'model', 'tokens' info
         """
+        logger.debug(
+            "Provider chat request: provider=%s model=%s temperature=%s max_tokens=%s messages=%s",
+            self.provider_name,
+            self.config["model"],
+            temperature,
+            max_tokens,
+            len(messages)
+        )
+
         try:
             response = self.client.chat.completions.create(
                 model=self.config["model"],
@@ -123,7 +137,7 @@ class AIProvider:
                 max_tokens=max_tokens
             )
 
-            return {
+            result = {
                 "content": response.choices[0].message.content,
                 "model": response.model,
                 "provider": self.provider_name,
@@ -133,7 +147,17 @@ class AIProvider:
                 "finish_reason": response.choices[0].finish_reason
             }
 
+            logger.info(
+                "Provider response received: provider=%s model=%s tokens=%s finish=%s",
+                self.provider_name,
+                result["model"],
+                result["total_tokens"],
+                result["finish_reason"]
+            )
+            return result
+
         except Exception as e:
+            logger.exception("Provider error for %s", self.provider_name)
             return {
                 "content": f"Error from {self.config['name']}: {str(e)}",
                 "model": self.config["model"],
@@ -164,6 +188,7 @@ class ProviderManager:
         Args:
             default_provider: Which provider to start with
         """
+        logger.info("Creating ProviderManager with default provider=%s", default_provider)
         self.current_provider_name = default_provider
         self.current_provider = AIProvider(default_provider)
 
@@ -177,12 +202,15 @@ class ProviderManager:
         Returns:
             True if switched successfully, False otherwise
         """
+        logger.info("Switching provider from %s to %s", self.current_provider_name, provider_name)
         try:
             new_provider = AIProvider(provider_name)
             self.current_provider = new_provider
             self.current_provider_name = provider_name
+            logger.info("Provider switched to %s", provider_name)
             return True
         except ValueError as e:
+            logger.warning("Provider switch failed: %s", e)
             print(f"❌ Error: {e}")
             return False
 
@@ -212,7 +240,6 @@ class ProviderManager:
         for key, config in PROVIDERS.items():
             api_key_env = config["api_key_env"]
             if api_key_env is None:
-                # Ollama - always listed
                 available.append(key)
             elif os.getenv(api_key_env):
                 available.append(key)

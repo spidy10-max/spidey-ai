@@ -1,9 +1,11 @@
 """
-Spidey AI — Main Entry Point (Updated with Settings)
-Now with full settings management!
+Spidey AI — Main Entry Point (Updated with Settings and Logging)
 """
 from spidey.brain.chat import SpideyBrain
 from spidey.config import settings, APP_NAME, APP_VERSION
+from spidey.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 def print_banner():
@@ -242,6 +244,9 @@ def main():
     print(f"   🌡️ Temp: {settings.get('temperature')} | 📏 Max: {settings.get('max_tokens')}")
     print()
 
+    logger.info("Spidey AI started with provider=%s username=%s",
+                info['name'], username)
+
     while True:
         try:
             provider = brain.get_provider_name()
@@ -255,6 +260,7 @@ def main():
             if user_input.lower() in ["quit", "exit", "bye", "q"]:
                 count = brain.get_history_count()
                 print(f"\n🕷️ Spidey: Bye {username}! Chat saved ({count} msgs)! 🕸️\n")
+                logger.info("User exited chat after %s messages", count)
                 break
 
             # === CHAT COMMANDS ===
@@ -340,8 +346,13 @@ def main():
 
         except KeyboardInterrupt:
             print("\n\n🕷️ Spidey: Chat saved! Bye! 🕸️\n")
+            logger.info("Chat interrupted by keyboard, shutting down")
             break
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        logger.exception("Unexpected error in main")
+        raise
