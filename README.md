@@ -2,25 +2,26 @@
 
 > Your Friendly Neighborhood AI Assistant
 
-A powerful desktop AI assistant built with Python. Features multi-provider AI support, persistent memory, configurable settings, and comprehensive logging.
+A powerful desktop AI assistant with multi-provider AI, persistent memory, semantic search, auto-memory detection, and comprehensive logging.
 
 ![Python](https://img.shields.io/badge/Python-3.12+-blue)
-![Version](https://img.shields.io/badge/Version-0.2.0-green)
+![Version](https://img.shields.io/badge/Version-0.3.0-green)
 ![License](https://img.shields.io/badge/License-MIT-yellow)
 
 ## 🚀 Features
 
-### ✅ Completed (Week 1-2)
-- 🤖 **Multi-AI Provider** — Switch between Groq, OpenAI, DeepSeek, Ollama
+### ✅ Completed
+- 🤖 **Multi-AI Provider** — Groq, OpenAI, DeepSeek, Ollama
 - 💬 **Interactive Chat** — Terminal-based conversational AI
-- 🧠 **Persistent Memory** — Conversations saved to JSON files
-- 📂 **History Management** — Load, delete, browse past conversations
-- ⚙️ **Settings System** — Configurable temperature, tokens, theme, username
-- 📋 **Logging System** — App logs, chat logs, error logs saved to files
-- 🔄 **Provider Switching** — Change AI brain on the fly
+- 🧠 **SQLite Database** — Structured data storage
+- 🔍 **ChromaDB Vectors** — Semantic search by meaning
+- 🧠 **Auto Memory** — Automatically detects name, age, city, etc.
+- 📝 **Notes System** — Personal notes with categories
+- 🔍 **Smart Search** — Combined exact + semantic search
+- ⚙️ **Settings System** — Configurable everything
+- 📋 **Logging System** — App, chat, error logs
 
-### 🔜 Coming Soon (Week 3-8)
-- 🧠 SQLite + ChromaDB vector memory
+### 🔜 Coming Soon
 - 🎤 Voice Control (Whisper STT + Piper TTS)
 - 💻 Computer Control (PyAutoGUI)
 - 🌐 Web Search & Internet Tools
@@ -34,11 +35,9 @@ A powerful desktop AI assistant built with Python. Features multi-provider AI su
 | Python 3.12 | Core language | ✅ |
 | OpenAI SDK | AI API client | ✅ |
 | Groq API | Free AI provider | ✅ |
-| JSON | Data storage | ✅ |
+| SQLite | Structured database | ✅ |
+| ChromaDB | Vector/semantic search | ✅ |
 | Logging | Activity tracking | ✅ |
-| FastAPI | Backend server | 🔜 |
-| SQLite | Database | 🔜 |
-| ChromaDB | Vector memory | 🔜 |
 | Whisper | Speech-to-text | 🔜 |
 | Piper TTS | Text-to-speech | 🔜 |
 | PyAutoGUI | Desktop automation | 🔜 |
