@@ -1,16 +1,17 @@
 """
-Spidey AI — Chat Brain (Updated with Search Engine + Auto Context)
-Now uses past conversations to give better answers!
+Spidey AI — Chat Brain (Updated with Auto Memory)
+Now automatically detects and remembers user info!
 """
 from spidey.brain.providers import ProviderManager
 from spidey.memory.memory import SpideyMemory
 from spidey.memory.search_engine import SearchEngine
+from spidey.memory.auto_memory import AutoMemory
 from spidey.config import settings, SYSTEM_PROMPT
 from spidey.logger import brain_logger, log_chat, log_event, log_error
 
 
 class SpideyBrain:
-    """Main AI chat class — with search engine + auto context!"""
+    """Main AI chat class — with auto memory detection!"""
 
     def __init__(self):
         """Initialize the AI brain"""
@@ -19,6 +20,7 @@ class SpideyBrain:
         self.max_tokens = settings.get("max_tokens", 1024)
         self.show_tokens = settings.get("show_tokens", False)
         self.auto_context = settings.get("auto_context", True)
+        self.auto_memory_enabled = settings.get("auto_memory", True)
 
         self.provider_manager = ProviderManager(default_provider=provider)
 
@@ -37,8 +39,11 @@ class SpideyBrain:
             vectors=self.memory.vectors
         )
 
+        # Auto memory detector
+        self.auto_memory = AutoMemory(self.memory)
+
         self.messages = [self.system_prompt]
-        brain_logger.info("SpideyBrain initialized with search engine")
+        brain_logger.info("SpideyBrain initialized with auto memory")
 
     def start_new_conversation(self):
         """Start new conversation"""
@@ -59,11 +64,19 @@ class SpideyBrain:
         return conv_id
 
     def chat(self, user_message):
-        """Send message and get response with auto-context"""
+        """Send message and get response with auto-context + auto-memory"""
         if not self.memory.current_conv_id:
             self.start_new_conversation()
 
-        # Auto-context: find relevant past chats
+        # === AUTO MEMORY: Detect facts from user message ===
+        detected_facts = []
+        if self.auto_memory_enabled:
+            try:
+                detected_facts = self.auto_memory.detect_and_save(user_message)
+            except Exception as e:
+                log_error(str(e), "SpideyBrain.chat (auto-memory)")
+
+        # === AUTO CONTEXT: Find relevant past chats ===
         if self.auto_context:
             try:
                 context = self.search_engine.get_context_for_query(user_message)
@@ -114,10 +127,17 @@ class SpideyBrain:
 
             log_chat("assistant", ai_reply, provider=provider_name)
 
+            # Show tokens if enabled
             if self.show_tokens and total_tokens > 0:
                 print(f"\n   📊 Tokens: {total_tokens} "
                       f"(in: {result.get('input_tokens', 0)}, "
                       f"out: {result.get('output_tokens', 0)})")
+
+            # Show auto-detected facts
+            if detected_facts:
+                print(f"\n   🧠 Auto-remembered:")
+                for fact in detected_facts:
+                    print(f"      • {fact['key']} = {fact['value']}")
 
             return ai_reply
 
@@ -131,6 +151,7 @@ class SpideyBrain:
         self.max_tokens = settings.get("max_tokens", 1024)
         self.show_tokens = settings.get("show_tokens", False)
         self.auto_context = settings.get("auto_context", True)
+        self.auto_memory_enabled = settings.get("auto_memory", True)
         system_prompt_text = settings.get("system_prompt", SYSTEM_PROMPT)
         self.system_prompt = {"role": "system", "content": system_prompt_text}
         log_event("Settings updated")
@@ -156,6 +177,7 @@ class SpideyBrain:
     def reset(self):
         if self.memory.current_conv_id:
             self.memory.save_summary()
+        self.auto_memory.reset_session()
         self.start_new_conversation()
         log_event("Conversation reset")
 
@@ -181,30 +203,24 @@ class SpideyBrain:
 
     # === SEARCH ===
     def smart_search(self, query, n_results=10):
-        """Full smart search across everything"""
         return self.search_engine.smart_search(query, n_results)
 
     def semantic_search(self, query, n_results=5):
-        """Semantic message search"""
         return self.memory.semantic_search(query, n_results)
 
     def search_chats(self, query):
-        """Exact word search"""
         return self.memory.search_messages(query)
 
     def search_summaries(self, query):
         return self.memory.search_summaries(query)
 
     def find_related(self, message, n_results=5):
-        """Find related past chats"""
         return self.search_engine.find_related_chats(message, n_results)
 
     def find_conversations_about(self, topic):
-        """Find conversations about a topic"""
         return self.search_engine.find_conversations_about(topic)
 
     def get_search_stats(self):
-        """Get search statistics"""
         return self.search_engine.get_search_stats()
 
     # === MEMORY ===
@@ -223,6 +239,10 @@ class SpideyBrain:
     def forget(self, key):
         return self.memory.forget(key)
 
+    def get_auto_detected(self):
+        """Get facts auto-detected this session"""
+        return self.auto_memory.get_detected_facts()
+
     # === NOTES ===
     def add_note(self, title, content, category="general", important=False):
         return self.memory.add_note(title, content, category, important)
@@ -238,7 +258,9 @@ class SpideyBrain:
 
     # === STATS ===
     def get_stats(self):
-        return self.memory.get_stats()
+        stats = self.memory.get_stats()
+        stats["auto_detected_this_session"] = self.auto_memory.get_detected_count()
+        return stats
 
     def close(self):
         if self.memory.current_conv_id:
