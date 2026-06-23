@@ -1,48 +1,47 @@
-# Spidey AI Assistant
+# 🕷️ SPIDEY AI Assistant
 
-**Author:** Rana Kashan (spidy10-max)
+> Your Friendly Neighborhood AI Assistant
 
-## Description
-Spidey AI Assistant is a personal AI assistant that provides voice interaction, memory, and computer control capabilities to help automate tasks, answer questions, and assist the user in daily workflows.
+A powerful desktop AI assistant built with Python. Features multi-provider AI support, persistent memory, configurable settings, and comprehensive logging.
 
-## Planned Features
-- Voice input (microphone) and speech output
-- Long-term memory and short-term context
-- Local file and app control (automation)
-- Web search and external API integration
-- Task scheduling and reminders
-- Secure settings and user preferences
+![Python](https://img.shields.io/badge/Python-3.12+-blue)
+![Version](https://img.shields.io/badge/Version-0.2.0-green)
+![License](https://img.shields.io/badge/License-MIT-yellow)
 
-## Tech Stack
-- Python
-- FastAPI
-- SQLite
-- ChromaDB
-- Whisper (speech-to-text)
-- Piper (TTS)
-- PyAutoGUI (desktop automation)
+## 🚀 Features
 
-## Setup Instructions
-1. Create a virtual environment:
+### ✅ Completed (Week 1-2)
+- 🤖 **Multi-AI Provider** — Switch between Groq, OpenAI, DeepSeek, Ollama
+- 💬 **Interactive Chat** — Terminal-based conversational AI
+- 🧠 **Persistent Memory** — Conversations saved to JSON files
+- 📂 **History Management** — Load, delete, browse past conversations
+- ⚙️ **Settings System** — Configurable temperature, tokens, theme, username
+- 📋 **Logging System** — App logs, chat logs, error logs saved to files
+- 🔄 **Provider Switching** — Change AI brain on the fly
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-```
+### 🔜 Coming Soon (Week 3-8)
+- 🧠 SQLite + ChromaDB vector memory
+- 🎤 Voice Control (Whisper STT + Piper TTS)
+- 💻 Computer Control (PyAutoGUI)
+- 🌐 Web Search & Internet Tools
+- 🤖 AI Agent Brain
+- 🖥️ Desktop GUI (PySide6)
 
-2. Install dependencies:
+## 🛠️ Tech Stack
 
-```powershell
-pip install -r requirements.txt
-```
+| Technology | Purpose | Status |
+|-----------|---------|--------|
+| Python 3.12 | Core language | ✅ |
+| OpenAI SDK | AI API client | ✅ |
+| Groq API | Free AI provider | ✅ |
+| JSON | Data storage | ✅ |
+| Logging | Activity tracking | ✅ |
+| FastAPI | Backend server | 🔜 |
+| SQLite | Database | 🔜 |
+| ChromaDB | Vector memory | 🔜 |
+| Whisper | Speech-to-text | 🔜 |
+| Piper TTS | Text-to-speech | 🔜 |
+| PyAutoGUI | Desktop automation | 🔜 |
+| PySide6 | Desktop GUI | 🔜 |
 
-3. Run the development server (FastAPI + Uvicorn):
-
-```powershell
-uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-4. Configure environment variables by adding a `.env` file at the project root.
-
-## Author
-Rana Kashan (spidy10-max)
+## 📁 Project Structure
