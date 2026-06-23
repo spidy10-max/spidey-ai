@@ -1,46 +1,37 @@
 """
-Spidey AI — Chat Brain (Updated with Multi-Provider)
-Now supports multiple AI providers!
+Spidey AI — Chat Brain (Updated with Config System)
+Now uses centralized settings!
 """
-import os
-from dotenv import load_dotenv
 from spidey.brain.history import ChatHistory
 from spidey.brain.providers import ProviderManager
-
-load_dotenv()
+from spidey.config import settings, SYSTEM_PROMPT, CONVERSATIONS_DIR
 
 
 class SpideyBrain:
-    """Main AI chat class — now with multi-provider support!"""
+    """Main AI chat class — now with config system!"""
 
-    def __init__(self, provider="groq"):
-        """
-        Initialize the AI brain
+    def __init__(self):
+        """Initialize the AI brain using settings"""
+        # Load settings
+        provider = settings.get("provider", "groq")
+        self.temperature = settings.get("temperature", 0.7)
+        self.max_tokens = settings.get("max_tokens", 1024)
+        self.show_tokens = settings.get("show_tokens", False)
 
-        Args:
-            provider: Which AI provider to use (default: groq)
-        """
-        # Provider manager handles AI switching
+        # Provider manager
         self.provider_manager = ProviderManager(default_provider=provider)
-        self.temperature = 0.7
-        self.max_tokens = 1024
 
-        # System prompt — Spidey ki personality
+        # System prompt from settings
+        system_prompt_text = settings.get("system_prompt", SYSTEM_PROMPT)
         self.system_prompt = {
             "role": "system",
-            "content": (
-                "You are Spidey AI, a friendly, witty, and helpful AI assistant. "
-                "You are smart, knowledgeable, and always ready to help. "
-                "You sometimes use Spider-Man references but keep it professional. "
-                "Keep your answers clear, concise, and helpful. "
-                "If you don't know something, say so honestly."
-            )
+            "content": system_prompt_text
         }
 
         # History manager
-        self.history = ChatHistory()
+        self.history = ChatHistory(history_dir=CONVERSATIONS_DIR)
 
-        # Messages list for API calls
+        # Messages list
         self.messages = [self.system_prompt]
 
     def start_new_conversation(self):
@@ -50,29 +41,17 @@ class SpideyBrain:
         return conv_id
 
     def chat(self, user_message):
-        """
-        Send a message to AI and get response
-
-        Args:
-            user_message: What the user typed
-
-        Returns:
-            AI's response as string
-        """
-        # Make sure we have a conversation file
+        """Send a message to AI and get response"""
         if not self.history.current_file:
             self.start_new_conversation()
 
-        # User ka message add karo
         self.messages.append({
             "role": "user",
             "content": user_message
         })
 
-        # Save user message to file
         self.history.add_message("user", user_message)
 
-        # AI se jawab lo (through provider manager)
         result = self.provider_manager.chat(
             messages=self.messages,
             temperature=self.temperature,
@@ -81,28 +60,40 @@ class SpideyBrain:
 
         ai_reply = result["content"]
 
-        # AI ka jawab memory mein add karo
         self.messages.append({
             "role": "assistant",
             "content": ai_reply
         })
 
-        # Save AI reply to file
         self.history.add_message("assistant", ai_reply)
+
+        # Show token usage if enabled
+        if self.show_tokens and result.get("total_tokens", 0) > 0:
+            print(f"\n   📊 Tokens: {result['total_tokens']} "
+                  f"(in: {result['input_tokens']}, "
+                  f"out: {result['output_tokens']})")
 
         return ai_reply
 
+    def update_settings(self):
+        """Reload settings (after user changes them)"""
+        self.temperature = settings.get("temperature", 0.7)
+        self.max_tokens = settings.get("max_tokens", 1024)
+        self.show_tokens = settings.get("show_tokens", False)
+
+        # Update system prompt if changed
+        system_prompt_text = settings.get("system_prompt", SYSTEM_PROMPT)
+        self.system_prompt = {
+            "role": "system",
+            "content": system_prompt_text
+        }
+
     def switch_provider(self, provider_name):
-        """
-        Switch to a different AI provider
-
-        Args:
-            provider_name: Provider key (groq, openai, deepseek, etc.)
-
-        Returns:
-            True if switched successfully
-        """
-        return self.provider_manager.switch_provider(provider_name)
+        """Switch to a different AI provider"""
+        success = self.provider_manager.switch_provider(provider_name)
+        if success:
+            settings.set("provider", provider_name)
+        return success
 
     def get_provider_info(self):
         """Get current provider info"""
