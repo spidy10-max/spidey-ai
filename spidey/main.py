@@ -1,371 +1,287 @@
 """
-Spidey AI — Main Entry Point (Updated with Database Memory)
-Now with remember/recall, notes, search, and stats!
+Spidey AI — Main Entry Point (With Semantic Search)
 """
 from spidey.brain.chat import SpideyBrain
 from spidey.config import settings, APP_NAME, APP_VERSION, LOGS_DIR
-from spidey.logger import log_startup, log_shutdown, log_event
+from spidey.logger import log_startup, log_shutdown
 import os
 
 
 def print_banner():
-    """Spidey AI welcome banner"""
     print()
     print("=" * 55)
     print(f"   🕷️  {APP_NAME} v{APP_VERSION}  🕷️")
     print("=" * 55)
-    print("   Your friendly neighborhood AI!")
-    print()
     print("   Chat:     quit | reset | count")
-    print("   History:  history | load | delete | search")
+    print("   History:  history | load | delete")
+    print("   Search:   search | smart | findsummary")
     print("   Provider: provider | switch | models")
     print("   Settings: settings | set | tokens | temp | name")
-    print("   Memory:   remember | recall | memories | forget")
-    print("   Notes:    note | notes | delnote")
+    print("   Memory:   remember | recall | smartrecall | memories | forget")
+    print("   Notes:    note | notes | findnote | delnote")
     print("   Other:    stats | logs")
     print("=" * 55)
     print()
 
 
 def show_history(brain):
-    """Show all conversations"""
     conversations = brain.get_all_conversations()
     if not conversations:
-        print("\n📭 No saved conversations.\n")
+        print("\n📭 No conversations.\n")
         return
-
     print("\n" + "=" * 55)
-    print("   📂 SAVED CONVERSATIONS")
+    print("   📂 CONVERSATIONS")
     print("=" * 55)
-
     for i, conv in enumerate(conversations, 1):
         print(f"\n   {i}. [{conv['conv_id']}]")
         print(f"      📅 {conv['created_at'][:19]}")
-        print(f"      💬 {conv['message_count']} messages")
-        print(f"      📝 {conv['title']}")
-        print(f"      🤖 {conv['provider']}")
-
-    print("\n" + "=" * 55)
-    print()
+        print(f"      💬 {conv['message_count']} msgs | 📝 {conv['title']}")
+    print("\n" + "=" * 55 + "\n")
 
 
 def load_conversation(brain):
-    """Load past conversation"""
     show_history(brain)
     conversations = brain.get_all_conversations()
     if not conversations:
         return
-
-    conv_input = input("🔢 Number to load: ").strip()
     try:
-        index = int(conv_input) - 1
+        index = int(input("🔢 Number: ").strip()) - 1
         if 0 <= index < len(conversations):
             conv_id = conversations[index]["conv_id"]
             if brain.load_conversation(conv_id):
-                count = brain.get_history_count()
-                print(f"\n✅ Loaded [{conv_id}] — {count} messages!")
-                print("🕷️ Spidey: I remember our chat! Let's continue.\n")
-        else:
-            print("\n❌ Invalid number.\n")
-    except ValueError:
-        print("\n❌ Enter a number.\n")
+                print(f"\n✅ Loaded [{conv_id}]!\n")
+    except (ValueError, IndexError):
+        print("\n❌ Invalid.\n")
 
 
 def delete_conversation(brain):
-    """Delete conversation"""
     show_history(brain)
     conversations = brain.get_all_conversations()
     if not conversations:
         return
-
-    conv_input = input("🔢 Number to delete: ").strip()
     try:
-        index = int(conv_input) - 1
+        index = int(input("🔢 Number: ").strip()) - 1
         if 0 <= index < len(conversations):
             conv_id = conversations[index]["conv_id"]
-            confirm = input(f"⚠️ Delete [{conv_id}]? (yes/no): ").strip()
-            if confirm.lower() in ["yes", "y"]:
+            if input(f"⚠️ Delete [{conv_id}]? (y/n): ").strip().lower() in ["y", "yes"]:
                 if brain.delete_conversation(conv_id):
                     print(f"\n🗑️ Deleted!\n")
-        else:
-            print("\n❌ Invalid number.\n")
-    except ValueError:
-        print("\n❌ Enter a number.\n")
+    except (ValueError, IndexError):
+        print("\n❌ Invalid.\n")
 
 
-def search_chats(brain):
-    """Search across all messages"""
-    query = input("🔍 Search: ").strip()
+def semantic_search(brain):
+    query = input("🔍 Smart search: ").strip()
     if not query:
         return
+    results = brain.semantic_search(query, n_results=5)
+    if not results:
+        print(f"\n📭 Nothing found for '{query}'.\n")
+        return
+    print(f"\n🔍 Found {len(results)} results (by meaning):\n")
+    for r in results:
+        role = r.get("metadata", {}).get("role", "?")
+        icon = "👤" if role == "user" else "🕷️"
+        conv = r.get("metadata", {}).get("conv_id", "?")
+        dist = round(r.get("distance", 0), 3)
+        print(f"   {icon} {r['content'][:60]}...")
+        print(f"      📂 Conv: {conv} | Distance: {dist}")
+        print()
 
+
+def search_exact(brain):
+    query = input("🔍 Search exact: ").strip()
+    if not query:
+        return
     results = brain.search_chats(query)
     if not results:
-        print(f"\n📭 No messages found for '{query}'.\n")
+        print(f"\n📭 Nothing found for '{query}'.\n")
         return
-
-    print(f"\n🔍 Found {len(results)} messages:\n")
+    print(f"\n🔍 Found {len(results)} results:\n")
     for msg in results[:10]:
-        role_icon = "👤" if msg["role"] == "user" else "🕷️"
-        content = msg["content"][:60]
-        conv_title = msg.get("conv_title", "Unknown")
-        print(f"   {role_icon} {content}...")
-        print(f"      📂 {conv_title} | 📅 {msg['created_at'][:19]}")
+        icon = "👤" if msg["role"] == "user" else "🕷️"
+        print(f"   {icon} {msg['content'][:60]}...")
+        print()
+
+
+def search_summaries(brain):
+    query = input("🔍 Search summaries: ").strip()
+    if not query:
+        return
+    results = brain.search_summaries(query)
+    if not results:
+        print(f"\n📭 No summaries found.\n")
+        return
+    print(f"\n🔍 Found {len(results)} summaries:\n")
+    for r in results:
+        print(f"   📝 {r['content'][:60]}...")
+        print(f"      📂 Conv: {r.get('conv_id', '?')}")
         print()
 
 
 def show_providers(brain):
-    """Show all providers"""
-    all_providers = brain.list_providers()
+    all_p = brain.list_providers()
     available = brain.get_available_providers()
     current = brain.get_provider_name()
-
     print("\n" + "=" * 55)
-    print("   🤖 AI PROVIDERS")
+    print("   🤖 PROVIDERS")
     print("=" * 55)
-
-    for i, (key, config) in enumerate(all_providers.items(), 1):
-        if key == current:
-            status = "✅ ACTIVE"
-        elif key in available:
-            status = "🟢 Ready"
-        else:
-            status = "🔴 No key"
-
-        free_tag = "FREE" if config["free"] else "PAID"
-        print(f"\n   {i}. {key} — {config['name']}")
-        print(f"      {status} | {free_tag}")
-
-    print("\n" + "=" * 55)
-    print()
+    for key, config in all_p.items():
+        status = "✅" if key == current else ("🟢" if key in available else "🔴")
+        free = "FREE" if config["free"] else "PAID"
+        print(f"   {status} {key} — {config['name']} ({free})")
+    print("=" * 55 + "\n")
 
 
 def switch_provider(brain):
-    """Switch provider"""
     show_providers(brain)
-    provider_keys = list(brain.list_providers().keys())
-    print("   Available:", ", ".join(provider_keys))
-    choice = input("\n🔢 Provider name: ").strip().lower()
-
-    if choice in provider_keys:
-        if brain.switch_provider(choice):
-            info = brain.get_provider_info()
-            print(f"\n✅ Switched to {info['name']}!\n")
-        else:
-            print("\n❌ Could not switch.\n")
+    choice = input("🔢 Provider: ").strip().lower()
+    if brain.switch_provider(choice):
+        info = brain.get_provider_info()
+        print(f"\n✅ Switched to {info['name']}!\n")
     else:
-        print(f"\n❌ Unknown: {choice}\n")
-
-
-def show_settings():
-    """Show settings"""
-    print(settings)
-
-
-def change_setting(brain):
-    """Change a setting"""
-    print("\n⚙️  Settings: temperature | max_tokens | username | show_tokens | theme")
-    choice = input("   Setting: ").strip().lower()
-
-    if choice == "temperature":
-        try:
-            value = float(input("   Value (0.0-2.0): "))
-            if 0.0 <= value <= 2.0:
-                settings.set("temperature", value)
-                brain.update_settings()
-                print(f"   ✅ Temperature: {value}\n")
-        except ValueError:
-            print("   ❌ Enter a number\n")
-
-    elif choice == "max_tokens":
-        try:
-            value = int(input("   Value (100-4096): "))
-            if 100 <= value <= 4096:
-                settings.set("max_tokens", value)
-                brain.update_settings()
-                print(f"   ✅ Max tokens: {value}\n")
-        except ValueError:
-            print("   ❌ Enter a number\n")
-
-    elif choice == "username":
-        value = input("   Name: ").strip()
-        if value:
-            settings.set("username", value)
-            brain.memory.update_user(username=value)
-            print(f"   ✅ Name: {value}\n")
-
-    elif choice == "show_tokens":
-        current = settings.get("show_tokens", False)
-        settings.set("show_tokens", not current)
-        brain.update_settings()
-        print(f"   ✅ Tokens: {'ON' if not current else 'OFF'}\n")
-
-    elif choice == "theme":
-        value = input("   Theme (dark/light): ").strip().lower()
-        if value in ["dark", "light"]:
-            settings.set("theme", value)
-            print(f"   ✅ Theme: {value}\n")
-
-    else:
-        print(f"   ❌ Unknown: {choice}\n")
+        print("\n❌ Could not switch.\n")
 
 
 def remember_something(brain):
-    """Remember a fact about user"""
-    key = input("   📝 What to remember (e.g., favorite_color): ").strip()
+    key = input("   📝 Key (e.g., favorite_color): ").strip()
     if not key:
         return
-    value = input(f"   📝 Value for '{key}': ").strip()
+    value = input(f"   📝 Value: ").strip()
     if not value:
         return
-
-    categories = "general, personal, coding, work, hobby"
-    category = input(f"   📁 Category ({categories}): ").strip() or "general"
-
+    category = input("   📁 Category (general/personal/coding/work): ").strip() or "general"
     if brain.remember(key, value, category):
-        print(f"\n   ✅ Remembered: {key} = {value} ({category})\n")
-    else:
-        print("\n   ❌ Could not save.\n")
+        print(f"\n   ✅ Remembered: {key} = {value}\n")
 
 
 def recall_something(brain):
-    """Recall a specific memory"""
-    key = input("   🧠 What to recall: ").strip()
+    key = input("   🧠 Key to recall: ").strip()
     if not key:
         return
-
     value = brain.recall(key)
     if value:
         print(f"\n   🧠 {key} = {value}\n")
     else:
-        print(f"\n   ❌ I don't remember '{key}'\n")
+        print(f"\n   ❌ Don't remember '{key}'\n")
 
 
-def show_memories(brain):
-    """Show all memories"""
-    memories = brain.get_all_memories()
-    if not memories:
-        print("\n📭 No memories saved yet.\n")
+def smart_recall(brain):
+    query = input("   🧠 Smart recall: ").strip()
+    if not query:
         return
-
-    print("\n" + "=" * 55)
-    print("   🧠 SPIDEY'S MEMORIES")
-    print("=" * 55)
-
-    current_category = ""
-    for key, info in memories.items():
-        if info["category"] != current_category:
-            current_category = info["category"]
-            print(f"\n   📁 {current_category.upper()}")
-
-        print(f"      • {key}: {info['value']}")
-
-    print("\n" + "=" * 55)
+    results = brain.smart_recall(query)
+    if not results:
+        print(f"\n   ❌ No memories found.\n")
+        return
+    print(f"\n   🧠 Found {len(results)} memories:\n")
+    for r in results:
+        print(f"      • {r['content']}")
     print()
 
 
+def show_memories(brain):
+    memories = brain.get_all_memories()
+    if not memories:
+        print("\n📭 No memories.\n")
+        return
+    print("\n" + "=" * 55)
+    print("   🧠 MEMORIES")
+    print("=" * 55)
+    for key, info in memories.items():
+        print(f"   • {key}: {info['value']} ({info['category']})")
+    print("=" * 55 + "\n")
+
+
 def forget_something(brain):
-    """Forget a memory"""
     show_memories(brain)
-    key = input("   🗑️ What to forget: ").strip()
-    if key:
-        if brain.forget(key):
-            print(f"\n   ✅ Forgot: {key}\n")
-        else:
-            print(f"\n   ❌ Could not forget '{key}'\n")
+    key = input("   🗑️ Key to forget: ").strip()
+    if key and brain.forget(key):
+        print(f"\n   ✅ Forgot: {key}\n")
 
 
 def add_note(brain):
-    """Add a new note"""
-    title = input("   📝 Note title: ").strip()
+    title = input("   📝 Title: ").strip()
     if not title:
         return
-    content = input("   📝 Note content: ").strip()
+    content = input("   📝 Content: ").strip()
     if not content:
         return
-    category = input("   📁 Category (general/study/work/personal): ").strip() or "general"
-    important = input("   ⭐ Important? (yes/no): ").strip().lower() in ["yes", "y"]
-
+    category = input("   📁 Category: ").strip() or "general"
+    important = input("   ⭐ Important? (y/n): ").strip().lower() in ["y", "yes"]
     if brain.add_note(title, content, category, important):
-        star = " ⭐" if important else ""
-        print(f"\n   ✅ Note added: {title}{star}\n")
+        print(f"\n   ✅ Note added!\n")
 
 
 def show_notes(brain):
-    """Show all notes"""
     notes = brain.get_notes()
     if not notes:
-        print("\n📭 No notes yet.\n")
+        print("\n📭 No notes.\n")
         return
-
     print("\n" + "=" * 55)
-    print("   📝 YOUR NOTES")
+    print("   📝 NOTES")
     print("=" * 55)
-
     for note in notes:
-        star = "⭐ " if note["is_important"] else "   "
-        print(f"\n   {star}[{note['id']}] {note['title']}")
+        star = "⭐" if note["is_important"] else "  "
+        print(f"   {star} [{note['id']}] {note['title']}")
         print(f"      {note['content'][:50]}")
-        print(f"      📁 {note['category']} | 📅 {note['created_at'][:19]}")
+    print("=" * 55 + "\n")
 
-    print("\n" + "=" * 55)
+
+def find_note(brain):
+    query = input("   🔍 Search notes: ").strip()
+    if not query:
+        return
+    results = brain.search_notes(query)
+    if not results:
+        print(f"\n   ❌ No notes found.\n")
+        return
+    print(f"\n   📝 Found {len(results)} notes:\n")
+    for r in results:
+        print(f"      • {r['content'][:60]}...")
     print()
 
 
 def delete_note(brain):
-    """Delete a note"""
     show_notes(brain)
     try:
-        note_id = int(input("   🗑️ Note ID to delete: ").strip())
+        note_id = int(input("   🗑️ Note ID: ").strip())
         if brain.delete_note(note_id):
-            print(f"\n   ✅ Note deleted!\n")
-        else:
-            print("\n   ❌ Could not delete.\n")
+            print(f"\n   ✅ Deleted!\n")
     except ValueError:
-        print("\n   ❌ Enter a valid ID.\n")
+        print("\n   ❌ Enter a number.\n")
 
 
 def show_stats(brain):
-    """Show database statistics"""
     stats = brain.get_stats()
-
     print("\n" + "=" * 55)
     print("   📊 SPIDEY STATS")
     print("=" * 55)
-    print(f"\n   💬 Conversations: {stats['total_conversations']}")
-    print(f"   📨 Total Messages: {stats['total_messages']}")
+    print(f"   💬 Conversations: {stats['total_conversations']}")
+    print(f"   📨 Messages: {stats['total_messages']}")
     print(f"      👤 User: {stats['user_messages']}")
-    print(f"      🕷️ Spidey: {stats['ai_messages']}")
-    print(f"   🔢 Total Tokens: {stats['total_tokens']}")
+    print(f"      🕷️ AI: {stats['ai_messages']}")
+    print(f"   🔢 Tokens: {stats['total_tokens']}")
     print(f"   📝 Notes: {stats['total_notes']}")
     print(f"   🧠 Memories: {stats['total_preferences']}")
-    print("\n" + "=" * 55)
-    print()
+    print(f"   🔍 Vector Messages: {stats.get('vector_messages', 0)}")
+    print(f"   📄 Vector Summaries: {stats.get('vector_summaries', 0)}")
+    print("=" * 55 + "\n")
 
 
 def show_logs():
-    """Show log files"""
     if not os.path.exists(LOGS_DIR):
-        print("\n📭 No logs yet.\n")
+        print("\n📭 No logs.\n")
         return
-
-    print("\n" + "=" * 55)
-    print("   📋 LOG FILES")
-    print("=" * 55)
-
     files = sorted(os.listdir(LOGS_DIR), reverse=True)
-    for f in files[:10]:
-        filepath = os.path.join(LOGS_DIR, f)
-        size = round(os.path.getsize(filepath) / 1024, 1)
-        print(f"\n   📄 {f} ({size} KB)")
-
-    print(f"\n   📁 {LOGS_DIR}")
-    print("=" * 55)
+    print("\n📋 Logs:")
+    for f in files[:5]:
+        size = round(os.path.getsize(os.path.join(LOGS_DIR, f)) / 1024, 1)
+        print(f"   📄 {f} ({size} KB)")
     print()
 
 
 def main():
-    """Main chat loop"""
     print_banner()
 
     brain = SpideyBrain()
@@ -375,19 +291,16 @@ def main():
 
     log_startup(info['name'], settings.get_all())
 
-    print(f"🕷️ Spidey: Hey {username}! I'm Spidey AI!")
+    print(f"🕷️ Spidey: Hey {username}! How can I help?")
     print(f"   🤖 {info['name']}")
-    print(f"   🌡️ Temp: {settings.get('temperature')} | 📏 Max: {settings.get('max_tokens')}")
 
-    # Show memory context
     memories = brain.get_all_memories()
     if memories:
         print(f"   🧠 I remember {len(memories)} things about you!")
 
     stats = brain.get_stats()
     if stats['total_conversations'] > 0:
-        print(f"   📊 Total: {stats['total_conversations']} chats, {stats['total_messages']} messages")
-
+        print(f"   📊 {stats['total_conversations']} chats, {stats['total_messages']} messages")
     print()
 
     while True:
@@ -401,7 +314,6 @@ def main():
 
             cmd = user_input.lower()
 
-            # === QUIT ===
             if cmd in ["quit", "exit", "bye", "q"]:
                 count = brain.get_history_count()
                 log_shutdown(count)
@@ -409,7 +321,6 @@ def main():
                 brain.close()
                 break
 
-            # === CHAT ===
             if cmd == "reset":
                 brain.reset()
                 print("\n🕷️ Spidey: Fresh start! 🔄\n")
@@ -417,8 +328,6 @@ def main():
             if cmd == "count":
                 print(f"\n📊 Messages: {brain.get_history_count()}\n")
                 continue
-
-            # === HISTORY ===
             if cmd == "history":
                 show_history(brain)
                 continue
@@ -429,10 +338,14 @@ def main():
                 delete_conversation(brain)
                 continue
             if cmd == "search":
-                search_chats(brain)
+                search_exact(brain)
                 continue
-
-            # === PROVIDERS ===
+            if cmd == "smart":
+                semantic_search(brain)
+                continue
+            if cmd == "findsummary":
+                search_summaries(brain)
+                continue
             if cmd == "provider":
                 info = brain.get_provider_info()
                 print(f"\n🤖 {info['name']} | {info['model']}\n")
@@ -443,44 +356,72 @@ def main():
             if cmd == "models":
                 show_providers(brain)
                 continue
-
-            # === SETTINGS ===
             if cmd == "settings":
-                show_settings()
+                print(settings)
                 continue
             if cmd == "set":
-                change_setting(brain)
+                print("\n⚙️ temperature | max_tokens | username | show_tokens | theme")
+                choice = input("   Setting: ").strip().lower()
+                if choice == "temperature":
+                    try:
+                        v = float(input("   Value (0.0-2.0): "))
+                        if 0.0 <= v <= 2.0:
+                            settings.set("temperature", v)
+                            brain.update_settings()
+                            print(f"   ✅ Temperature: {v}\n")
+                    except ValueError:
+                        print("   ❌ Enter a number\n")
+                elif choice == "max_tokens":
+                    try:
+                        v = int(input("   Value (100-4096): "))
+                        if 100 <= v <= 4096:
+                            settings.set("max_tokens", v)
+                            brain.update_settings()
+                            print(f"   ✅ Max tokens: {v}\n")
+                    except ValueError:
+                        print("   ❌ Enter a number\n")
+                elif choice == "username":
+                    v = input("   Name: ").strip()
+                    if v:
+                        settings.set("username", v)
+                        brain.memory.update_user(username=v)
+                        print(f"   ✅ Name: {v}\n")
+                elif choice == "show_tokens":
+                    cur = settings.get("show_tokens", False)
+                    settings.set("show_tokens", not cur)
+                    brain.update_settings()
+                    print(f"   ✅ Tokens: {'ON' if not cur else 'OFF'}\n")
                 continue
             if cmd == "tokens":
-                current = settings.get("show_tokens", False)
-                settings.set("show_tokens", not current)
+                cur = settings.get("show_tokens", False)
+                settings.set("show_tokens", not cur)
                 brain.update_settings()
-                print(f"\n📊 Tokens: {'ON' if not current else 'OFF'}\n")
+                print(f"\n📊 Tokens: {'ON' if not cur else 'OFF'}\n")
                 continue
             if cmd == "temp":
                 try:
-                    value = float(input("   🌡️ Temperature (0.0-2.0): "))
-                    if 0.0 <= value <= 2.0:
-                        settings.set("temperature", value)
+                    v = float(input("   🌡️ Temperature (0.0-2.0): "))
+                    if 0.0 <= v <= 2.0:
+                        settings.set("temperature", v)
                         brain.update_settings()
-                        print(f"   ✅ Temperature: {value}\n")
+                        print(f"   ✅ Temperature: {v}\n")
                 except ValueError:
                     print("   ❌ Enter a number\n")
                 continue
             if cmd == "name":
-                new_name = input("   📝 Your name: ").strip()
-                if new_name:
-                    settings.set("username", new_name)
-                    brain.memory.update_user(username=new_name)
-                    print(f"   ✅ Name: {new_name}\n")
+                v = input("   📝 Name: ").strip()
+                if v:
+                    settings.set("username", v)
+                    print(f"   ✅ Name: {v}\n")
                 continue
-
-            # === MEMORY ===
             if cmd == "remember":
                 remember_something(brain)
                 continue
             if cmd == "recall":
                 recall_something(brain)
+                continue
+            if cmd == "smartrecall":
+                smart_recall(brain)
                 continue
             if cmd == "memories":
                 show_memories(brain)
@@ -488,19 +429,18 @@ def main():
             if cmd == "forget":
                 forget_something(brain)
                 continue
-
-            # === NOTES ===
             if cmd == "note":
                 add_note(brain)
                 continue
             if cmd == "notes":
                 show_notes(brain)
                 continue
+            if cmd == "findnote":
+                find_note(brain)
+                continue
             if cmd == "delnote":
                 delete_note(brain)
                 continue
-
-            # === STATS & LOGS ===
             if cmd == "stats":
                 show_stats(brain)
                 continue
@@ -508,7 +448,7 @@ def main():
                 show_logs()
                 continue
 
-            # === AI CHAT ===
+            # AI Chat
             print()
             print("🕷️ Spidey: ", end="")
             response = brain.chat(user_input)
@@ -517,7 +457,7 @@ def main():
 
         except KeyboardInterrupt:
             log_shutdown(brain.get_history_count())
-            print("\n\n🕷️ Spidey: Chat saved! Bye! 🕸️\n")
+            print("\n\n🕷️ Spidey: Bye! 🕸️\n")
             brain.close()
             break
 

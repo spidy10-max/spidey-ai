@@ -1,6 +1,6 @@
 """
-Spidey AI — Chat Brain (Updated with SQLite Memory)
-Now uses database instead of JSON files!
+Spidey AI — Chat Brain (Updated with Semantic Memory)
+Now saves to SQLite + ChromaDB!
 """
 from spidey.brain.providers import ProviderManager
 from spidey.memory.memory import SpideyMemory
@@ -9,36 +9,31 @@ from spidey.logger import brain_logger, log_chat, log_event, log_error
 
 
 class SpideyBrain:
-    """Main AI chat class — now with database memory!"""
+    """Main AI chat class — with full memory!"""
 
     def __init__(self):
         """Initialize the AI brain"""
-        # Load settings
         provider = settings.get("provider", "groq")
         self.temperature = settings.get("temperature", 0.7)
         self.max_tokens = settings.get("max_tokens", 1024)
         self.show_tokens = settings.get("show_tokens", False)
 
-        # Provider manager
         self.provider_manager = ProviderManager(default_provider=provider)
 
-        # System prompt
         system_prompt_text = settings.get("system_prompt", SYSTEM_PROMPT)
         self.system_prompt = {
             "role": "system",
             "content": system_prompt_text
         }
 
-        # Memory (SQLite database)
+        # Memory (SQLite + ChromaDB)
         self.memory = SpideyMemory()
-
-        # Messages list for API calls
         self.messages = [self.system_prompt]
 
-        brain_logger.info("SpideyBrain initialized with SQLite memory")
+        brain_logger.info("SpideyBrain initialized with full memory")
 
     def start_new_conversation(self):
-        """Start a new conversation"""
+        """Start new conversation"""
         provider_info = self.provider_manager.get_current_info()
         conv_id = self.memory.start_conversation(
             provider=self.provider_manager.get_current_name(),
@@ -46,7 +41,6 @@ class SpideyBrain:
         )
         self.messages = [self.system_prompt]
 
-        # Add memory context if available
         memory_context = self.memory.get_memory_context()
         if memory_context:
             self.messages.append({
@@ -57,29 +51,18 @@ class SpideyBrain:
         return conv_id
 
     def chat(self, user_message):
-        """
-        Send message and get response
-
-        Args:
-            user_message: What user typed
-
-        Returns:
-            AI response string
-        """
+        """Send message and get response"""
         if not self.memory.current_conv_id:
             self.start_new_conversation()
 
-        # Add user message to list
         self.messages.append({
             "role": "user",
             "content": user_message
         })
 
-        # Log user message
         log_chat("user", user_message)
 
         try:
-            # Get AI response
             result = self.provider_manager.chat(
                 messages=self.messages,
                 temperature=self.temperature,
@@ -90,13 +73,12 @@ class SpideyBrain:
             provider_name = result.get("provider", "unknown")
             total_tokens = result.get("total_tokens", 0)
 
-            # Add AI reply to messages list
             self.messages.append({
                 "role": "assistant",
                 "content": ai_reply
             })
 
-            # Save both messages to database
+            # Save to SQLite + ChromaDB
             self.memory.save_message(
                 "user", user_message,
                 tokens_used=result.get("input_tokens", 0),
@@ -110,10 +92,8 @@ class SpideyBrain:
                 model=result.get("model")
             )
 
-            # Log AI response
             log_chat("assistant", ai_reply, provider=provider_name)
 
-            # Show tokens if enabled
             if self.show_tokens and total_tokens > 0:
                 print(f"\n   📊 Tokens: {total_tokens} "
                       f"(in: {result.get('input_tokens', 0)}, "
@@ -130,12 +110,8 @@ class SpideyBrain:
         self.temperature = settings.get("temperature", 0.7)
         self.max_tokens = settings.get("max_tokens", 1024)
         self.show_tokens = settings.get("show_tokens", False)
-
         system_prompt_text = settings.get("system_prompt", SYSTEM_PROMPT)
-        self.system_prompt = {
-            "role": "system",
-            "content": system_prompt_text
-        }
+        self.system_prompt = {"role": "system", "content": system_prompt_text}
         log_event("Settings updated")
 
     def switch_provider(self, provider_name):
@@ -158,92 +134,82 @@ class SpideyBrain:
         return self.provider_manager.get_available_providers()
 
     def reset(self):
-        """Reset — start fresh conversation"""
+        """Reset conversation + save summary"""
+        if self.memory.current_conv_id:
+            self.memory.save_summary()
         self.start_new_conversation()
         log_event("Conversation reset")
 
     def load_conversation(self, conv_id):
-        """Load a previous conversation"""
+        """Load previous conversation"""
         if self.memory.load_conversation(conv_id):
             saved_messages = self.memory.get_conversation_messages(conv_id)
             self.messages = [self.system_prompt]
-
-            # Add memory context
             memory_context = self.memory.get_memory_context()
             if memory_context:
-                self.messages.append({
-                    "role": "system",
-                    "content": memory_context
-                })
-
+                self.messages.append({"role": "system", "content": memory_context})
             self.messages += saved_messages
             return True
         return False
 
     def get_history_count(self):
-        """Message count in current conversation"""
         return self.memory.get_message_count()
 
     def get_all_conversations(self):
-        """Get all conversations"""
         return self.memory.get_all_conversations()
 
     def delete_conversation(self, conv_id):
-        """Delete a conversation"""
         return self.memory.delete_conversation(conv_id)
 
+    # === SEARCH ===
+    def semantic_search(self, query, n_results=5):
+        """Search by MEANING"""
+        return self.memory.semantic_search(query, n_results)
+
     def search_chats(self, query):
-        """Search across all messages"""
+        """Search by exact words"""
         return self.memory.search_messages(query)
 
-    # ============================================================
-    #  MEMORY COMMANDS (Remember/Recall)
-    # ============================================================
+    def search_summaries(self, query):
+        """Search conversation summaries"""
+        return self.memory.search_summaries(query)
 
+    # === MEMORY ===
     def remember(self, key, value, category="general"):
-        """Remember something about user"""
         return self.memory.remember(key, value, category)
 
     def recall(self, key):
-        """Recall something about user"""
         return self.memory.recall(key)
 
+    def smart_recall(self, query):
+        """Search memories by meaning"""
+        return self.memory.smart_recall(query)
+
     def get_all_memories(self):
-        """Get all memories"""
         return self.memory.get_all_memories()
 
     def forget(self, key):
-        """Forget something"""
         return self.memory.forget(key)
 
-    # ============================================================
-    #  NOTES
-    # ============================================================
-
+    # === NOTES ===
     def add_note(self, title, content, category="general", important=False):
-        """Add a note"""
         return self.memory.add_note(title, content, category, important)
 
     def get_notes(self, category=None, important_only=False):
-        """Get notes"""
         return self.memory.get_notes(category, important_only)
 
     def search_notes(self, query):
-        """Search notes"""
         return self.memory.search_notes(query)
 
     def delete_note(self, note_id):
-        """Delete a note"""
         return self.memory.delete_note(note_id)
 
-    # ============================================================
-    #  STATS
-    # ============================================================
-
+    # === STATS ===
     def get_stats(self):
-        """Get database stats"""
         return self.memory.get_stats()
 
     def close(self):
-        """Cleanup"""
+        """Save summary and cleanup"""
+        if self.memory.current_conv_id:
+            self.memory.save_summary()
         self.memory.close()
