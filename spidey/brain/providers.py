@@ -1,20 +1,11 @@
-"""
-Spidey AI — Multi-Provider System
-Switch between different AI providers easily!
-Supported: Groq, OpenAI, DeepSeek, Ollama
-"""
-import os
 import openai
+import os
 from dotenv import load_dotenv
+from spidey.logger import brain_logger, log_error, log_provider_switch
 
 load_dotenv()
 
-from spidey.logger import get_logger
 
-logger = get_logger(__name__)
-
-
-# All available providers and their settings
 PROVIDERS = {
     "groq": {
         "name": "Groq (Llama 3.1)",
@@ -71,12 +62,6 @@ class AIProvider:
     """Manages a single AI provider connection"""
 
     def __init__(self, provider_name="groq"):
-        """
-        Initialize an AI provider
-
-        Args:
-            provider_name: Key from PROVIDERS dict
-        """
         if provider_name not in PROVIDERS:
             raise ValueError(
                 f"Unknown provider: {provider_name}. "
@@ -85,23 +70,21 @@ class AIProvider:
 
         self.provider_name = provider_name
         self.config = PROVIDERS[provider_name]
-        logger.info("Initializing AIProvider: %s", provider_name)
         self.client = self._create_client()
+        brain_logger.info(f"Provider initialized: {self.config['name']}")
 
     def _create_client(self):
-        """Create OpenAI-compatible client for this provider"""
+        """Create OpenAI-compatible client"""
         api_key_env = self.config["api_key_env"]
 
         if api_key_env:
             api_key = os.getenv(api_key_env)
             if not api_key:
-                logger.error("Missing API key for provider %s (%s)", self.provider_name, api_key_env)
-                raise ValueError(
-                    f"API key not found! Set {api_key_env} in your .env file"
-                )
+                error_msg = f"API key not found! Set {api_key_env} in .env"
+                log_error(error_msg, "Provider._create_client")
+                raise ValueError(error_msg)
         else:
             api_key = "ollama"
-            logger.debug("Using local Ollama provider without API key")
 
         return openai.OpenAI(
             api_key=api_key,
@@ -109,27 +92,12 @@ class AIProvider:
         )
 
     def chat(self, messages, temperature=0.7, max_tokens=1024):
-        """
-        Send messages to this provider and get response
-
-        Args:
-            messages: List of message dicts
-            temperature: Creativity level
-            max_tokens: Max response length
-
-        Returns:
-            dict with 'content', 'model', 'tokens' info
-        """
-        logger.debug(
-            "Provider chat request: provider=%s model=%s temperature=%s max_tokens=%s messages=%s",
-            self.provider_name,
-            self.config["model"],
-            temperature,
-            max_tokens,
-            len(messages)
-        )
-
+        """Send messages and get response"""
         try:
+            brain_logger.debug(
+                f"Sending {len(messages)} messages to {self.config['name']}"
+            )
+
             response = self.client.chat.completions.create(
                 model=self.config["model"],
                 messages=messages,
@@ -147,17 +115,14 @@ class AIProvider:
                 "finish_reason": response.choices[0].finish_reason
             }
 
-            logger.info(
-                "Provider response received: provider=%s model=%s tokens=%s finish=%s",
-                self.provider_name,
-                result["model"],
-                result["total_tokens"],
-                result["finish_reason"]
+            brain_logger.debug(
+                f"Response received: {result['total_tokens']} tokens"
             )
+
             return result
 
         except Exception as e:
-            logger.exception("Provider error for %s", self.provider_name)
+            log_error(str(e), f"Provider.chat ({self.config['name']})")
             return {
                 "content": f"Error from {self.config['name']}: {str(e)}",
                 "model": self.config["model"],
@@ -179,46 +144,29 @@ class AIProvider:
 
 
 class ProviderManager:
-    """Manages multiple AI providers and switching between them"""
+    """Manages multiple providers and switching"""
 
     def __init__(self, default_provider="groq"):
-        """
-        Initialize provider manager
-
-        Args:
-            default_provider: Which provider to start with
-        """
-        logger.info("Creating ProviderManager with default provider=%s", default_provider)
         self.current_provider_name = default_provider
         self.current_provider = AIProvider(default_provider)
 
     def switch_provider(self, provider_name):
-        """
-        Switch to a different AI provider
-
-        Args:
-            provider_name: Key from PROVIDERS dict
-
-        Returns:
-            True if switched successfully, False otherwise
-        """
-        logger.info("Switching provider from %s to %s", self.current_provider_name, provider_name)
+        """Switch to different provider"""
         try:
+            old_name = self.current_provider_name
             new_provider = AIProvider(provider_name)
             self.current_provider = new_provider
             self.current_provider_name = provider_name
-            logger.info("Provider switched to %s", provider_name)
+            log_provider_switch(old_name, provider_name)
             return True
         except ValueError as e:
-            logger.warning("Provider switch failed: %s", e)
+            log_error(str(e), "ProviderManager.switch")
             print(f"❌ Error: {e}")
             return False
 
     def chat(self, messages, temperature=0.7, max_tokens=1024):
         """Send chat to current provider"""
-        return self.current_provider.chat(
-            messages, temperature, max_tokens
-        )
+        return self.current_provider.chat(messages, temperature, max_tokens)
 
     def get_current_info(self):
         """Get current provider info"""
@@ -230,12 +178,12 @@ class ProviderManager:
 
     @staticmethod
     def list_providers():
-        """List all available providers"""
+        """List all providers"""
         return PROVIDERS
 
     @staticmethod
     def get_available_providers():
-        """Get providers that have API keys configured"""
+        """Get providers with API keys"""
         available = []
         for key, config in PROVIDERS.items():
             api_key_env = config["api_key_env"]

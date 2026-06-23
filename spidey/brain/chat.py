@@ -1,77 +1,132 @@
 """
-Spidey AI — Chat Brain (Updated with Config System and Logging)
-Now uses centralized settings and structured runtime logs.
+Spidey AI — Chat Brain (Updated with SQLite Memory)
+Now uses database instead of JSON files!
 """
-from spidey.brain.history import ChatHistory
 from spidey.brain.providers import ProviderManager
-from spidey.config import settings, SYSTEM_PROMPT, CONVERSATIONS_DIR
-from spidey.logger import get_logger
-
-logger = get_logger(__name__)
+from spidey.memory.memory import SpideyMemory
+from spidey.config import settings, SYSTEM_PROMPT
+from spidey.logger import brain_logger, log_chat, log_event, log_error
 
 
 class SpideyBrain:
-    """Main AI chat class — now with config system and logging!"""
+    """Main AI chat class — now with database memory!"""
 
     def __init__(self):
-        """Initialize the AI brain using settings"""
+        """Initialize the AI brain"""
+        # Load settings
         provider = settings.get("provider", "groq")
         self.temperature = settings.get("temperature", 0.7)
         self.max_tokens = settings.get("max_tokens", 1024)
         self.show_tokens = settings.get("show_tokens", False)
 
-        logger.info("Initializing SpideyBrain with provider=%s temperature=%s max_tokens=%s",
-                    provider, self.temperature, self.max_tokens)
-
+        # Provider manager
         self.provider_manager = ProviderManager(default_provider=provider)
 
+        # System prompt
         system_prompt_text = settings.get("system_prompt", SYSTEM_PROMPT)
         self.system_prompt = {
             "role": "system",
             "content": system_prompt_text
         }
 
-        self.history = ChatHistory(history_dir=CONVERSATIONS_DIR)
+        # Memory (SQLite database)
+        self.memory = SpideyMemory()
+
+        # Messages list for API calls
         self.messages = [self.system_prompt]
 
+        brain_logger.info("SpideyBrain initialized with SQLite memory")
+
     def start_new_conversation(self):
-        """Start a brand new conversation"""
-        conv_id = self.history.create_new_conversation()
+        """Start a new conversation"""
+        provider_info = self.provider_manager.get_current_info()
+        conv_id = self.memory.start_conversation(
+            provider=self.provider_manager.get_current_name(),
+            model=provider_info.get("model", "unknown")
+        )
         self.messages = [self.system_prompt]
-        logger.info("Started new conversation %s", conv_id)
+
+        # Add memory context if available
+        memory_context = self.memory.get_memory_context()
+        if memory_context:
+            self.messages.append({
+                "role": "system",
+                "content": memory_context
+            })
+
         return conv_id
 
     def chat(self, user_message):
-        """Send a message to AI and get response"""
-        if not self.history.current_file:
+        """
+        Send message and get response
+
+        Args:
+            user_message: What user typed
+
+        Returns:
+            AI response string
+        """
+        if not self.memory.current_conv_id:
             self.start_new_conversation()
 
-        logger.info("User message received: %s", user_message)
-        self.messages.append({"role": "user", "content": user_message})
-        self.history.add_message("user", user_message)
+        # Add user message to list
+        self.messages.append({
+            "role": "user",
+            "content": user_message
+        })
 
-        result = self.provider_manager.chat(
-            messages=self.messages,
-            temperature=self.temperature,
-            max_tokens=self.max_tokens
-        )
+        # Log user message
+        log_chat("user", user_message)
 
-        ai_reply = result["content"]
-        self.messages.append({"role": "assistant", "content": ai_reply})
-        self.history.add_message("assistant", ai_reply)
+        try:
+            # Get AI response
+            result = self.provider_manager.chat(
+                messages=self.messages,
+                temperature=self.temperature,
+                max_tokens=self.max_tokens
+            )
 
-        logger.info("AI reply saved: provider=%s tokens=%s",
-                    result.get("provider"), result.get("total_tokens"))
+            ai_reply = result["content"]
+            provider_name = result.get("provider", "unknown")
+            total_tokens = result.get("total_tokens", 0)
 
-        if self.show_tokens and result.get("total_tokens", 0) > 0:
-            print(f"\n   📊 Tokens: {result['total_tokens']} "
-                  f"(in: {result['input_tokens']}, "
-                  f"out: {result['output_tokens']})")
+            # Add AI reply to messages list
+            self.messages.append({
+                "role": "assistant",
+                "content": ai_reply
+            })
 
-        return ai_reply
+            # Save both messages to database
+            self.memory.save_message(
+                "user", user_message,
+                tokens_used=result.get("input_tokens", 0),
+                provider=provider_name,
+                model=result.get("model")
+            )
+            self.memory.save_message(
+                "assistant", ai_reply,
+                tokens_used=result.get("output_tokens", 0),
+                provider=provider_name,
+                model=result.get("model")
+            )
+
+            # Log AI response
+            log_chat("assistant", ai_reply, provider=provider_name)
+
+            # Show tokens if enabled
+            if self.show_tokens and total_tokens > 0:
+                print(f"\n   📊 Tokens: {total_tokens} "
+                      f"(in: {result.get('input_tokens', 0)}, "
+                      f"out: {result.get('output_tokens', 0)})")
+
+            return ai_reply
+
+        except Exception as e:
+            log_error(str(e), "SpideyBrain.chat")
+            return f"Error: {str(e)}"
 
     def update_settings(self):
-        """Reload settings (after user changes them)"""
+        """Reload settings"""
         self.temperature = settings.get("temperature", 0.7)
         self.max_tokens = settings.get("max_tokens", 1024)
         self.show_tokens = settings.get("show_tokens", False)
@@ -81,63 +136,114 @@ class SpideyBrain:
             "role": "system",
             "content": system_prompt_text
         }
-
-        logger.info("Updated settings: temperature=%s max_tokens=%s show_tokens=%s",
-                    self.temperature, self.max_tokens, self.show_tokens)
+        log_event("Settings updated")
 
     def switch_provider(self, provider_name):
-        """Switch to a different AI provider"""
+        """Switch AI provider"""
         success = self.provider_manager.switch_provider(provider_name)
         if success:
             settings.set("provider", provider_name)
-            logger.info("Provider name changed in settings to %s", provider_name)
         return success
 
     def get_provider_info(self):
-        """Get current provider info"""
         return self.provider_manager.get_current_info()
 
     def get_provider_name(self):
-        """Get current provider name"""
         return self.provider_manager.get_current_name()
 
     def list_providers(self):
-        """List all available providers"""
         return self.provider_manager.list_providers()
 
     def get_available_providers(self):
-        """Get providers with API keys configured"""
         return self.provider_manager.get_available_providers()
 
     def reset(self):
-        """Reset conversation"""
-        self.messages = [self.system_prompt]
+        """Reset — start fresh conversation"""
         self.start_new_conversation()
-        logger.info("Conversation reset")
+        log_event("Conversation reset")
 
     def load_conversation(self, conv_id):
         """Load a previous conversation"""
-        if self.history.load_conversation(conv_id):
-            saved_messages = self.history.get_messages()
-            self.messages = [self.system_prompt] + saved_messages
-            logger.info("Loaded conversation %s with %s messages", conv_id, len(saved_messages))
+        if self.memory.load_conversation(conv_id):
+            saved_messages = self.memory.get_conversation_messages(conv_id)
+            self.messages = [self.system_prompt]
+
+            # Add memory context
+            memory_context = self.memory.get_memory_context()
+            if memory_context:
+                self.messages.append({
+                    "role": "system",
+                    "content": memory_context
+                })
+
+            self.messages += saved_messages
             return True
-        logger.warning("Failed to load conversation %s", conv_id)
         return False
 
     def get_history_count(self):
-        """Kitne messages hue ab tak"""
-        return len(self.messages) - 1
+        """Message count in current conversation"""
+        return self.memory.get_message_count()
 
     def get_all_conversations(self):
-        """Get list of all saved conversations"""
-        return self.history.get_all_conversations()
+        """Get all conversations"""
+        return self.memory.get_all_conversations()
 
     def delete_conversation(self, conv_id):
         """Delete a conversation"""
-        deleted = self.history.delete_conversation(conv_id)
-        if deleted:
-            logger.info("Deleted conversation %s", conv_id)
-        else:
-            logger.warning("Could not delete conversation %s", conv_id)
-        return deleted
+        return self.memory.delete_conversation(conv_id)
+
+    def search_chats(self, query):
+        """Search across all messages"""
+        return self.memory.search_messages(query)
+
+    # ============================================================
+    #  MEMORY COMMANDS (Remember/Recall)
+    # ============================================================
+
+    def remember(self, key, value, category="general"):
+        """Remember something about user"""
+        return self.memory.remember(key, value, category)
+
+    def recall(self, key):
+        """Recall something about user"""
+        return self.memory.recall(key)
+
+    def get_all_memories(self):
+        """Get all memories"""
+        return self.memory.get_all_memories()
+
+    def forget(self, key):
+        """Forget something"""
+        return self.memory.forget(key)
+
+    # ============================================================
+    #  NOTES
+    # ============================================================
+
+    def add_note(self, title, content, category="general", important=False):
+        """Add a note"""
+        return self.memory.add_note(title, content, category, important)
+
+    def get_notes(self, category=None, important_only=False):
+        """Get notes"""
+        return self.memory.get_notes(category, important_only)
+
+    def search_notes(self, query):
+        """Search notes"""
+        return self.memory.search_notes(query)
+
+    def delete_note(self, note_id):
+        """Delete a note"""
+        return self.memory.delete_note(note_id)
+
+    # ============================================================
+    #  STATS
+    # ============================================================
+
+    def get_stats(self):
+        """Get database stats"""
+        return self.memory.get_stats()
+
+    def close(self):
+        """Cleanup"""
+        self.memory.close()
