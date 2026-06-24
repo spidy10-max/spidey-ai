@@ -1,21 +1,23 @@
 """
-Spidey AI — Tool Connector (Enhanced with File Manager!)
+Spidey AI — Tool Connector (Complete with System Info!)
 """
 import re
 import os
 from spidey.tools.computer import ComputerControl
 from spidey.tools.file_manager import FileManager
+from spidey.tools.system_info import SystemInfo
 from spidey.logger import app_logger, log_event, log_error
 
 
 class ToolConnector:
-    """AI to computer + files bridge"""
+    """AI to computer + files + system bridge"""
 
     def __init__(self):
         self.pc = ComputerControl()
         self.fm = FileManager()
+        self.si = SystemInfo()
         self.enabled = True
-        app_logger.info("ToolConnector initialized (with FileManager)")
+        app_logger.info("ToolConnector initialized (full)")
 
     def process_command(self, text):
         """Check text for commands"""
@@ -40,10 +42,12 @@ class ToolConnector:
         result = result or self._detect_window(lower)
         result = result or self._detect_scroll(lower)
         result = result or self._detect_system(lower)
+        result = result or self._detect_system_info(lower)
 
         return result
 
     def _detect_open_app(self, text):
+        """open chrome, launch notepad"""
         apps = [
             "chrome", "google chrome", "browser", "google",
             "firefox", "edge", "brave",
@@ -80,6 +84,7 @@ class ToolConnector:
         return None
 
     def _detect_close_app(self, text):
+        """close chrome, kill notepad"""
         patterns = [
             r"(?:close|kill|stop|band|quit)\s+(.+?)(?:\s+please|\s+now|\s+karo|\s+kro)?$",
             r"(.+?)\s+(?:close|band|khatam)\s*(?:karo|kro)?$",
@@ -93,16 +98,18 @@ class ToolConnector:
         return None
 
     def _detect_screenshot(self, text):
+        """take screenshot, ss lo"""
         keywords = [
             "take screenshot", "take a screenshot", "screenshot le",
             "screenshot lo", "capture screen", "ss lo", "ss le",
-            "take ss", "screenshot karo", "screenshot"
+            "take ss", "screenshot karo"
         ]
         if text.strip() == "screenshot" or any(kw in text for kw in keywords):
             return self.pc.take_screenshot()
         return None
 
     def _detect_recording(self, text):
+        """start/stop recording"""
         if any(kw in text for kw in ["start recording", "record screen",
                                       "screen record", "record karo", "recording shuru"]):
             dur = re.search(r"(\d+)\s*(?:sec|second|minute|min)", text)
@@ -126,6 +133,7 @@ class ToolConnector:
         return None
 
     def _detect_open_url(self, lower, original):
+        """open youtube, go to google"""
         websites = {
             "youtube": "https://www.youtube.com",
             "google": "https://www.google.com",
@@ -165,6 +173,7 @@ class ToolConnector:
         return None
 
     def _detect_browser(self, text):
+        """google search, new tab"""
         match = re.search(r"(?:google|search|search for|google search)\s+(.+?)$", text)
         if match:
             query = match.group(1).strip()
@@ -175,6 +184,7 @@ class ToolConnector:
         return None
 
     def _detect_open_folder(self, lower):
+        """open downloads, open desktop"""
         folders = {
             "downloads": os.path.expanduser("~\\Downloads"),
             "desktop": os.path.expanduser("~\\Desktop"),
@@ -194,9 +204,8 @@ class ToolConnector:
         return None
 
     def _detect_file_search(self, lower):
-        """Enhanced file search — type, recent, large files"""
-
-        # Search by extension: "find all python files", "show pdf files"
+        """find python files, show recent, large files"""
+        # By extension
         ext_match = re.search(r"(?:find|show|list|search)\s+(?:all\s+)?(\w+)\s+files", lower)
         if ext_match:
             ext_name = ext_match.group(1).strip()
@@ -219,19 +228,18 @@ class ToolConnector:
                 results = self.fm.search_by_extension(ext_map[ext_name])
                 return self.fm.format_results(results, f"{ext_name.upper()} Files")
 
-        # Recent files: "show recent files", "recently modified"
+        # Recent
         if any(kw in lower for kw in ["recent files", "recently modified", "latest files",
                                        "naye files", "new files"]):
             results = self.fm.search_recent(hours=24)
             return self.fm.format_results(results, "Recent Files (24 hours)")
 
-        # Large files: "find large files", "big files"
-        if any(kw in lower for kw in ["large files", "big files", "bade files",
-                                       "heavy files"]):
+        # Large
+        if any(kw in lower for kw in ["large files", "big files", "bade files", "heavy files"]):
             results = self.fm.search_large_files(min_size_mb=50)
             return self.fm.format_results(results, "Large Files (>50MB)")
 
-        # General search: "search for readme", "find project files"
+        # General search
         match = re.search(r"(?:search|find|dhundo|khojo)\s+(?:for\s+)?(.+?)(?:\s+files?)?$", lower)
         if match:
             query = match.group(1).strip()
@@ -239,7 +247,7 @@ class ToolConnector:
                 results = self.fm.search(query)
                 return self.fm.format_results(results, f"Files matching '{query}'")
 
-        # List folder: "list downloads", "show desktop files"
+        # List folder
         list_match = re.search(r"(?:list|show|dikhao)\s+(.+?)(?:\s+files|\s+folder)?$", lower)
         if list_match:
             folder = list_match.group(1).strip()
@@ -258,29 +266,12 @@ class ToolConnector:
         return None
 
     def _detect_file_operations(self, lower, original):
-        """file info, folder size, create folder"""
-        # Disk space
-        if any(kw in lower for kw in ["disk space", "storage", "drive space",
-                                       "free space", "disk info"]):
-            drives = ["C:"]
-            for d in ["D:", "E:", "K:"]:
-                if os.path.exists(d + "\\"):
-                    drives.append(d)
-
-            output = "💾 Disk Space:\n"
-            for drive in drives:
-                info = self.fm.get_disk_space(drive)
-                if isinstance(info, dict):
-                    output += f"   {drive} — {info['free']} free / {info['total']} total ({info['percent_used']}% used)\n"
-            return output
-
-        # Create folder
+        """create folder"""
         match = re.search(r"(?:create|make|bana)\s+(?:a\s+)?folder\s+(.+?)$", lower)
         if match:
             name = match.group(1).strip()
             path = os.path.join(os.path.expanduser("~\\Desktop"), name)
             return self.fm.create_folder(path)
-
         return None
 
     def _detect_disk_info(self, lower):
@@ -302,6 +293,7 @@ class ToolConnector:
         return None
 
     def _detect_type_text(self, lower, original):
+        """type hello world"""
         match = re.search(r"(?:type|write|likho)\s+[\"'](.+?)[\"']", lower)
         if match:
             return self.pc.type_text(match.group(1))
@@ -313,6 +305,7 @@ class ToolConnector:
         return None
 
     def _detect_keyboard(self, text):
+        """press enter, ctrl+c"""
         hotkeys = [
             (r"(?:press\s+)?ctrl\s*\+\s*c", ["ctrl", "c"]),
             (r"(?:press\s+)?ctrl\s*\+\s*v", ["ctrl", "v"]),
@@ -339,6 +332,7 @@ class ToolConnector:
         return None
 
     def _detect_window(self, text):
+        """minimize, maximize, switch window"""
         if any(kw in text for kw in ["minimize", "chhota karo"]):
             return self.pc.minimize_window()
         if any(kw in text for kw in ["maximize", "bara karo", "full screen"]):
@@ -356,6 +350,7 @@ class ToolConnector:
         return None
 
     def _detect_scroll(self, text):
+        """scroll up/down"""
         if any(kw in text for kw in ["scroll up", "upar scroll"]):
             return self.pc.scroll(5)
         if any(kw in text for kw in ["scroll down", "neeche scroll"]):
@@ -363,6 +358,7 @@ class ToolConnector:
         return None
 
     def _detect_system(self, text):
+        """lock screen, brightness"""
         if any(kw in text for kw in ["lock screen", "lock computer"]):
             return self.pc.lock_screen()
         if "mouse position" in text:
@@ -375,6 +371,45 @@ class ToolConnector:
         match = re.search(r"(?:brightness|bright)\s*(\d+)", text)
         if match:
             return self.pc.set_brightness(int(match.group(1)))
+        return None
+
+    def _detect_system_info(self, text):
+        """system info, battery, wifi, time, running apps"""
+        if any(kw in text for kw in ["system info", "pc info", "computer info",
+                                      "system information", "about my pc",
+                                      "about this pc", "about computer"]):
+            return self.si.get_all_info()
+
+        if any(kw in text for kw in ["battery", "charge", "battery status",
+                                      "battery level", "kitni battery"]):
+            return self.si.get_battery()
+
+        if any(kw in text for kw in ["wifi", "network", "internet status",
+                                      "wifi name", "connected to", "wifi status"]):
+            return self.si.get_wifi()
+
+        if any(kw in text for kw in ["my ip", "ip address", "what is my ip",
+                                      "mera ip"]):
+            return self.si.get_ip()
+
+        if any(kw in text for kw in ["uptime", "how long running", "kab se chala",
+                                      "system uptime"]):
+            return self.si.get_uptime()
+
+        if any(kw in text for kw in ["running apps", "open apps", "what is running",
+                                      "active apps", "kya chal raha", "active programs",
+                                      "running programs"]):
+            return self.si.get_running_apps()
+
+        if any(kw in text for kw in ["what time", "kya time", "date and time",
+                                      "today date", "aaj ki date", "current time",
+                                      "abhi kya time"]):
+            return self.si.get_date_time()
+
+        if any(kw in text for kw in ["quick info", "system status", "pc status",
+                                      "computer status"]):
+            return self.si.get_quick_info()
+
         return None
 
     def toggle(self):
