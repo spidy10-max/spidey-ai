@@ -1,20 +1,20 @@
 """
-Spidey AI — Chat Brain (Updated with Auto Memory)
-Now automatically detects and remembers user info!
+Spidey AI — Chat Brain (With Computer Control!)
+AI + Memory + Voice + Computer Tools!
 """
 from spidey.brain.providers import ProviderManager
 from spidey.memory.memory import SpideyMemory
 from spidey.memory.search_engine import SearchEngine
 from spidey.memory.auto_memory import AutoMemory
+from spidey.tools.tool_connector import ToolConnector
 from spidey.config import settings, SYSTEM_PROMPT
 from spidey.logger import brain_logger, log_chat, log_event, log_error
 
 
 class SpideyBrain:
-    """Main AI chat class — with auto memory detection!"""
+    """Main AI chat class — with computer control!"""
 
     def __init__(self):
-        """Initialize the AI brain"""
         provider = settings.get("provider", "groq")
         self.temperature = settings.get("temperature", 0.7)
         self.max_tokens = settings.get("max_tokens", 1024)
@@ -30,23 +30,22 @@ class SpideyBrain:
             "content": system_prompt_text
         }
 
-        # Memory (SQLite + ChromaDB)
         self.memory = SpideyMemory()
 
-        # Search engine
         self.search_engine = SearchEngine(
             db=self.memory.db,
             vectors=self.memory.vectors
         )
 
-        # Auto memory detector
         self.auto_memory = AutoMemory(self.memory)
 
+        # Computer tools!
+        self.tools = ToolConnector()
+
         self.messages = [self.system_prompt]
-        brain_logger.info("SpideyBrain initialized with auto memory")
+        brain_logger.info("SpideyBrain initialized with computer control")
 
     def start_new_conversation(self):
-        """Start new conversation"""
         provider_info = self.provider_manager.get_current_info()
         conv_id = self.memory.start_conversation(
             provider=self.provider_manager.get_current_name(),
@@ -64,30 +63,47 @@ class SpideyBrain:
         return conv_id
 
     def chat(self, user_message):
-        """Send message and get response with auto-context + auto-memory"""
+        """Send message — checks for computer commands first!"""
         if not self.memory.current_conv_id:
             self.start_new_conversation()
 
-        # === AUTO MEMORY: Detect facts from user message ===
-        detected_facts = []
+        # === STEP 1: Check for computer commands ===
+        tool_result = self.tools.process_command(user_message)
+
+        if tool_result:
+            # Computer command detected — execute and return result!
+            log_chat("user", user_message)
+            log_chat("assistant", tool_result, provider="tool")
+
+            # Save to memory
+            self.memory.save_message("user", user_message)
+            self.memory.save_message("assistant", tool_result)
+
+            return tool_result
+
+        # === STEP 2: Auto memory detection ===
         if self.auto_memory_enabled:
             try:
-                detected_facts = self.auto_memory.detect_and_save(user_message)
+                detected = self.auto_memory.detect_and_save(user_message)
+                if detected:
+                    for fact in detected:
+                        print(f"\n   🧠 Auto-remembered: {fact['key']} = {fact['value']}")
             except Exception as e:
-                log_error(str(e), "SpideyBrain.chat (auto-memory)")
+                log_error(str(e), "chat - auto memory")
 
-        # === AUTO CONTEXT: Find relevant past chats ===
+        # === STEP 3: Auto context from past chats ===
         if self.auto_context:
             try:
                 context = self.search_engine.get_context_for_query(user_message)
                 if context:
                     self.messages.append({
                         "role": "system",
-                        "content": f"[Auto-context from past conversations]\n{context}"
+                        "content": f"[Context from past conversations]\n{context}"
                     })
             except Exception as e:
-                log_error(str(e), "SpideyBrain.chat (auto-context)")
+                log_error(str(e), "chat - auto context")
 
+        # === STEP 4: Send to AI ===
         self.messages.append({
             "role": "user",
             "content": user_message
@@ -111,7 +127,6 @@ class SpideyBrain:
                 "content": ai_reply
             })
 
-            # Save to SQLite + ChromaDB
             self.memory.save_message(
                 "user", user_message,
                 tokens_used=result.get("input_tokens", 0),
@@ -127,17 +142,8 @@ class SpideyBrain:
 
             log_chat("assistant", ai_reply, provider=provider_name)
 
-            # Show tokens if enabled
             if self.show_tokens and total_tokens > 0:
-                print(f"\n   📊 Tokens: {total_tokens} "
-                      f"(in: {result.get('input_tokens', 0)}, "
-                      f"out: {result.get('output_tokens', 0)})")
-
-            # Show auto-detected facts
-            if detected_facts:
-                print(f"\n   🧠 Auto-remembered:")
-                for fact in detected_facts:
-                    print(f"      • {fact['key']} = {fact['value']}")
+                print(f"\n   📊 Tokens: {total_tokens}")
 
             return ai_reply
 
@@ -146,7 +152,6 @@ class SpideyBrain:
             return f"Error: {str(e)}"
 
     def update_settings(self):
-        """Reload settings"""
         self.temperature = settings.get("temperature", 0.7)
         self.max_tokens = settings.get("max_tokens", 1024)
         self.show_tokens = settings.get("show_tokens", False)
@@ -214,15 +219,6 @@ class SpideyBrain:
     def search_summaries(self, query):
         return self.memory.search_summaries(query)
 
-    def find_related(self, message, n_results=5):
-        return self.search_engine.find_related_chats(message, n_results)
-
-    def find_conversations_about(self, topic):
-        return self.search_engine.find_conversations_about(topic)
-
-    def get_search_stats(self):
-        return self.search_engine.get_search_stats()
-
     # === MEMORY ===
     def remember(self, key, value, category="general"):
         return self.memory.remember(key, value, category)
@@ -240,7 +236,6 @@ class SpideyBrain:
         return self.memory.forget(key)
 
     def get_auto_detected(self):
-        """Get facts auto-detected this session"""
         return self.auto_memory.get_detected_facts()
 
     # === NOTES ===
@@ -256,10 +251,18 @@ class SpideyBrain:
     def delete_note(self, note_id):
         return self.memory.delete_note(note_id)
 
+    # === TOOLS ===
+    def toggle_tools(self):
+        return self.tools.toggle()
+
+    def tools_enabled(self):
+        return self.tools.is_enabled()
+
     # === STATS ===
     def get_stats(self):
         stats = self.memory.get_stats()
         stats["auto_detected_this_session"] = self.auto_memory.get_detected_count()
+        stats["tools_enabled"] = self.tools.is_enabled()
         return stats
 
     def close(self):
