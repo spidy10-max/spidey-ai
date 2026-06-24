@@ -1,10 +1,13 @@
 """
-Spidey AI — Main (Spidey Beta Mode!)
+Spidey AI — Main (Ctrl+C safe!)
+Ctrl+C = Cancel current command (NOT exit!)
+Type 'quit' to exit properly.
 """
 from spidey.brain.chat import SpideyBrain
 from spidey.config import settings, APP_NAME, APP_VERSION, LOGS_DIR
 from spidey.logger import log_startup, log_shutdown
 import os
+import signal
 
 try:
     from spidey.voice.voice_manager import VoiceManager
@@ -19,7 +22,7 @@ def print_banner():
     print(f"   🕷️  {APP_NAME} v{APP_VERSION}  🕷️")
     print("=" * 55)
     print("   🕷️ SPIDEY: spidey beta (full voice mode!)")
-    print("   🎤 Voice:   v | voice5 | voice10 | voiceauto")
+    print("   🎤 Voice:   v | voice5 | voice10")
     print("   🗣️ Speech:  speakmode | saytest | setvoice")
     print("   🌍 Lang:    urdu | english | hindi")
     print("   💬 Chat:    quit | reset | count")
@@ -29,6 +32,7 @@ def print_banner():
     print("   🧠 Memory:  remember | recall | memories | forget")
     print("   📝 Notes:   note | notes")
     print("   📊 Other:   stats | voicestatus | mictest")
+    print("   💡 Ctrl+C = Cancel command (NOT exit!)")
     print("=" * 55)
     print()
 
@@ -65,11 +69,10 @@ def main():
     vm = None
     if VOICE_AVAILABLE:
         try:
-            print("   ⏳ Loading voice system (small model for accuracy)...")
+            print("   ⏳ Loading voice system...")
             vm = VoiceManager(whisper_model="small", tts_engine="edge")
             print(f"   🎤 Mic:   {'✅' if vm.is_input_available() else '❌'}")
             print(f"   🗣️ Voice: {'✅' if vm.is_output_available() else '❌'}")
-            print(f"   🗣️ Voice: Jenny (US Female)")
         except Exception as e:
             print(f"   🎤 Error: {e}")
             vm = None
@@ -83,11 +86,11 @@ def main():
     if memories:
         print(f"   🧠 {len(memories)} memories!")
 
-    print(f"\n   💡 'spidey beta' = Full voice mode!")
-    print(f"   💡 'v' = One voice message")
-    print(f"   💡 'speakmode' = Auto-speak all replies\n")
+    print(f"\n   💡 'spidey beta' = Voice mode | 'quit' = Exit\n")
 
-    while True:
+    running = True
+
+    while running:
         try:
             provider = brain.get_provider_name()
             username = settings.get("username", "User")
@@ -99,20 +102,24 @@ def main():
 
             cmd = user_input.lower()
 
-            # === QUIT ===
-            if cmd in ["quit", "exit", "bye", "q"]:
+            # === QUIT (only way to exit!) ===
+            if cmd in ["quit", "exit"]:
                 count = brain.get_history_count()
                 log_shutdown(count)
                 print(f"\n🕷️ Bye {username}! ({count} msgs saved) 🕸️")
                 if vm and vm.speak_enabled:
                     vm.speak(f"Bye {username}!")
                 brain.close()
+                running = False
                 break
 
-            # === 🕷️ SPIDEY BETA MODE ===
+            # === SPIDEY BETA ===
             if cmd in ["spidey beta", "spideybeta", "beta"]:
                 if vm and vm.is_input_available() and vm.is_output_available():
-                    vm.spidey_beta_loop(brain)
+                    try:
+                        vm.spidey_beta_loop(brain)
+                    except KeyboardInterrupt:
+                        print("\n   ⚠️ Spidey Beta cancelled!\n")
                 else:
                     print("\n   ❌ Voice not available!\n")
                 continue
@@ -120,24 +127,28 @@ def main():
             # === VOICE ===
             if cmd in ["v", "voice"]:
                 if vm:
-                    vm.voice_chat(brain, mode="fixed", duration=7)
+                    try:
+                        vm.voice_chat(brain, mode="auto")
+                    except KeyboardInterrupt:
+                        print("\n   ⚠️ Voice cancelled!\n")
                 else:
                     print("\n   ❌ Voice not available!\n")
                 continue
 
             if cmd == "voice5":
                 if vm:
-                    vm.voice_chat(brain, mode="fixed", duration=5)
+                    try:
+                        vm.voice_chat(brain, mode="fixed", duration=5)
+                    except KeyboardInterrupt:
+                        print("\n   ⚠️ Cancelled!\n")
                 continue
 
             if cmd == "voice10":
                 if vm:
-                    vm.voice_chat(brain, mode="fixed", duration=10)
-                continue
-
-            if cmd == "voiceauto":
-                if vm:
-                    vm.voice_chat(brain, mode="auto")
+                    try:
+                        vm.voice_chat(brain, mode="fixed", duration=10)
+                    except KeyboardInterrupt:
+                        print("\n   ⚠️ Cancelled!\n")
                 continue
 
             # === SPEECH ===
@@ -146,20 +157,26 @@ def main():
                     on = vm.toggle_speak()
                     print(f"\n   🔊 Speak: {'ON 🟢' if on else 'OFF 🔴'}")
                     if on:
-                        vm.speak("Speak mode on! I will speak all responses!")
+                        vm.speak("Speak mode on!")
                     print()
                 continue
 
             if cmd == "saytest":
                 if vm:
-                    vm.test_speak()
+                    try:
+                        vm.test_speak()
+                    except KeyboardInterrupt:
+                        print("\n   ⚠️ Cancelled!\n")
                 continue
 
             if cmd == "speak":
                 if vm:
                     t = input("   🗣️ Text: ").strip()
                     if t:
-                        vm.speak(t)
+                        try:
+                            vm.speak(t)
+                        except KeyboardInterrupt:
+                            print("\n   ⚠️ Cancelled!\n")
                 continue
 
             # === LANGUAGE ===
@@ -174,7 +191,7 @@ def main():
                 if vm:
                     vm.set_language("en")
                     print("   ✅ English voice!")
-                    vm.speak("Hello! English voice activated!")
+                    vm.speak("English voice activated!")
                 continue
 
             if cmd == "hindi":
@@ -199,6 +216,8 @@ def main():
                             vm.speak(f"Hello! I am now {voices[c]['name']}!")
                     except (ValueError, IndexError):
                         print("   ❌ Invalid")
+                    except KeyboardInterrupt:
+                        print("\n   ⚠️ Cancelled!\n")
                 continue
 
             if cmd == "voicestatus":
@@ -207,16 +226,17 @@ def main():
                     print(f"\n   🎤 Input:  {'✅' if s['voice_input'] else '❌'}")
                     print(f"   🗣️ Output: {'✅' if s['voice_output'] else '❌'}")
                     print(f"   🔊 Speak:  {'ON' if s['speak_enabled'] else 'OFF'}")
-                    print(f"   🕷️ Beta:   {'ON' if s['spidey_beta'] else 'OFF'}")
                     v = s.get('current_voice', {})
                     print(f"   🗣️ Voice:  {v.get('voice', 'N/A')}")
-                    print(f"   🌍 Lang:   {v.get('language', 'N/A')}")
                     print()
                 continue
 
             if cmd == "mictest":
                 if vm:
-                    vm.test_mic()
+                    try:
+                        vm.test_mic()
+                    except KeyboardInterrupt:
+                        print("\n   ⚠️ Cancelled!\n")
                 continue
 
             # === CHAT ===
@@ -243,6 +263,8 @@ def main():
                             print("✅ Loaded!\n")
                     except (ValueError, IndexError):
                         pass
+                    except KeyboardInterrupt:
+                        print("\n   ⚠️ Cancelled!\n")
                 continue
             if cmd == "delete":
                 show_history(brain)
@@ -256,22 +278,30 @@ def main():
                                 print("🗑️ Deleted!\n")
                     except (ValueError, IndexError):
                         pass
+                    except KeyboardInterrupt:
+                        print("\n   ⚠️ Cancelled!\n")
                 continue
 
             # === SEARCH ===
             if cmd == "search":
-                q = input("🔍 Search: ").strip()
-                if q:
-                    for m in (brain.search_chats(q) or [])[:5]:
-                        print(f"   {'👤' if m['role']=='user' else '🕷️'} {m['content'][:60]}...")
-                print()
+                try:
+                    q = input("🔍 Search: ").strip()
+                    if q:
+                        for m in (brain.search_chats(q) or [])[:5]:
+                            print(f"   {'👤' if m['role']=='user' else '🕷️'} {m['content'][:60]}...")
+                    print()
+                except KeyboardInterrupt:
+                    print("\n   ⚠️ Cancelled!\n")
                 continue
             if cmd == "smart":
-                q = input("🔍 Smart: ").strip()
-                if q:
-                    for r in (brain.semantic_search(q) or [])[:5]:
-                        print(f"   📝 {r['content'][:60]}...")
-                print()
+                try:
+                    q = input("🔍 Smart: ").strip()
+                    if q:
+                        for r in (brain.semantic_search(q) or [])[:5]:
+                            print(f"   📝 {r['content'][:60]}...")
+                    print()
+                except KeyboardInterrupt:
+                    print("\n   ⚠️ Cancelled!\n")
                 continue
 
             # === PROVIDERS ===
@@ -280,9 +310,12 @@ def main():
                 continue
             if cmd == "switch":
                 show_providers(brain)
-                c = input("🔢 Provider: ").strip().lower()
-                if brain.switch_provider(c):
-                    print("✅ Switched!\n")
+                try:
+                    c = input("🔢 Provider: ").strip().lower()
+                    if brain.switch_provider(c):
+                        print("✅ Switched!\n")
+                except KeyboardInterrupt:
+                    print("\n   ⚠️ Cancelled!\n")
                 continue
             if cmd == "models":
                 show_providers(brain)
@@ -305,36 +338,48 @@ def main():
                         settings.set("temperature", v)
                         brain.update_settings()
                         print(f"   ✅ {v}\n")
-                except ValueError:
-                    pass
+                except (ValueError, KeyboardInterrupt):
+                    print("\n   ⚠️ Cancelled!\n")
                 continue
             if cmd == "name":
-                v = input("   📝 Name: ").strip()
-                if v:
-                    settings.set("username", v)
-                    print(f"   ✅ {v}\n")
+                try:
+                    v = input("   📝 Name: ").strip()
+                    if v:
+                        settings.set("username", v)
+                        print(f"   ✅ {v}\n")
+                except KeyboardInterrupt:
+                    print("\n   ⚠️ Cancelled!\n")
                 continue
 
             # === MEMORY ===
             if cmd == "remember":
-                k = input("   📝 Key: ").strip()
-                v = input("   📝 Value: ").strip() if k else ""
-                if k and v:
-                    brain.remember(k, v, input("   📁 Category: ").strip() or "general")
-                    print(f"   ✅ {k} = {v}\n")
+                try:
+                    k = input("   📝 Key: ").strip()
+                    v = input("   📝 Value: ").strip() if k else ""
+                    if k and v:
+                        brain.remember(k, v, input("   📁 Category: ").strip() or "general")
+                        print(f"   ✅ {k} = {v}\n")
+                except KeyboardInterrupt:
+                    print("\n   ⚠️ Cancelled!\n")
                 continue
             if cmd == "recall":
-                k = input("   🧠 Key: ").strip()
-                if k:
-                    v = brain.recall(k)
-                    print(f"   🧠 {k} = {v}\n" if v else "   ❌ Unknown\n")
+                try:
+                    k = input("   🧠 Key: ").strip()
+                    if k:
+                        v = brain.recall(k)
+                        print(f"   🧠 {k} = {v}\n" if v else "   ❌ Unknown\n")
+                except KeyboardInterrupt:
+                    print("\n   ⚠️ Cancelled!\n")
                 continue
             if cmd == "smartrecall":
-                q = input("   🧠 Query: ").strip()
-                if q:
-                    for r in brain.smart_recall(q):
-                        print(f"      • {r['content']}")
-                print()
+                try:
+                    q = input("   🧠 Query: ").strip()
+                    if q:
+                        for r in brain.smart_recall(q):
+                            print(f"      • {r['content']}")
+                    print()
+                except KeyboardInterrupt:
+                    print("\n   ⚠️ Cancelled!\n")
                 continue
             if cmd == "memories":
                 m = brain.get_all_memories()
@@ -346,18 +391,24 @@ def main():
                 print()
                 continue
             if cmd == "forget":
-                k = input("   🗑️ Key: ").strip()
-                if k and brain.forget(k):
-                    print(f"   ✅ Forgot!\n")
+                try:
+                    k = input("   🗑️ Key: ").strip()
+                    if k and brain.forget(k):
+                        print(f"   ✅ Forgot!\n")
+                except KeyboardInterrupt:
+                    print("\n   ⚠️ Cancelled!\n")
                 continue
 
             # === NOTES ===
             if cmd == "note":
-                t = input("   📝 Title: ").strip()
-                c = input("   📝 Content: ").strip() if t else ""
-                if t and c:
-                    brain.add_note(t, c)
-                    print("   ✅ Added!\n")
+                try:
+                    t = input("   📝 Title: ").strip()
+                    c = input("   📝 Content: ").strip() if t else ""
+                    if t and c:
+                        brain.add_note(t, c)
+                        print("   ✅ Added!\n")
+                except KeyboardInterrupt:
+                    print("\n   ⚠️ Cancelled!\n")
                 continue
             if cmd == "notes":
                 for n in brain.get_notes():
@@ -379,20 +430,30 @@ def main():
                 continue
 
             # === AI CHAT ===
-            print()
-            print("🕷️ Spidey: ", end="", flush=True)
-            response = brain.chat(user_input)
-            print(response)
-            print()
+            try:
+                print()
+                print("🕷️ Spidey: ", end="", flush=True)
+                response = brain.chat(user_input)
+                print(response)
+                print()
 
-            if vm and vm.speak_enabled and response:
-                vm.speak(response)
+                if vm and vm.speak_enabled and response:
+                    vm.speak(response)
+            except KeyboardInterrupt:
+                print("\n   ⚠️ Response cancelled!\n")
 
         except KeyboardInterrupt:
-            log_shutdown(brain.get_history_count())
-            print("\n\n🕷️ Bye!\n")
-            brain.close()
-            break
+            # Ctrl+C on input prompt — DON'T EXIT!
+            print("\n   ⚠️ Cancelled! (Type 'quit' to exit)\n")
+            continue
+        except EOFError:
+            print("\n   ⚠️ Input error. Try again.\n")
+            continue
+        except Exception as e:
+            print(f"\n   ❌ Error: {e}\n")
+            continue
+
+    print("\n🕷️ Spidey AI closed.\n")
 
 
 if __name__ == "__main__":
