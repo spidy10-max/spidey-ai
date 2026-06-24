@@ -9,12 +9,9 @@ import os
 
 
 class VoiceInput:
-    """Voice input with language support for better accuracy"""
+    """Voice input with language support"""
 
     def __init__(self, whisper_model="small"):
-        """
-        whisper_model = "small" for better accuracy
-        """
         self.recorder = AudioRecorder()
         self.transcriber = Transcriber(model_size=whisper_model)
         self.last_audio_path = None
@@ -26,21 +23,18 @@ class VoiceInput:
             app_logger.warning("VoiceInput: Whisper not available")
 
     def listen_fixed(self, duration=5, language=None):
-        """Listen for fixed duration"""
         filepath = self.recorder.record_fixed(duration=duration)
         if not filepath:
             return None
         return self._transcribe_and_cleanup(filepath, language)
 
     def listen_until_enter(self, language=None):
-        """Listen until Enter"""
         filepath = self.recorder.record_until_enter()
         if not filepath:
             return None
         return self._transcribe_and_cleanup(filepath, language)
 
     def listen_auto(self, max_duration=30, silence_seconds=2.0, language=None):
-        """Listen with auto-stop on silence"""
         filepath = self.recorder.record_with_silence_detection(
             max_duration=max_duration,
             silence_threshold=0.01,
@@ -51,14 +45,6 @@ class VoiceInput:
         return self._transcribe_and_cleanup(filepath, language)
 
     def listen(self, mode="fixed", duration=5, language=None):
-        """
-        Universal listen
-
-        Args:
-            mode: 'fixed', 'enter', 'auto'
-            duration: Seconds for fixed mode
-            language: 'en' for English (better accuracy!)
-        """
         if mode == "fixed":
             return self.listen_fixed(duration=duration, language=language)
         elif mode == "enter":
@@ -69,7 +55,6 @@ class VoiceInput:
             return None
 
     def _transcribe_and_cleanup(self, filepath, language=None):
-        """Transcribe and cleanup"""
         if not filepath or not os.path.exists(filepath):
             return None
 
