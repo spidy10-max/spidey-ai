@@ -1,10 +1,19 @@
 """
-Spidey AI — Main Entry Point (With Semantic Search)
+Spidey AI — Main Entry Point (With Voice Input!)
+Now you can SPEAK to Spidey! 🎤
 """
 from spidey.brain.chat import SpideyBrain
 from spidey.config import settings, APP_NAME, APP_VERSION, LOGS_DIR
 from spidey.logger import log_startup, log_shutdown
 import os
+
+
+# Try to import voice
+try:
+    from spidey.voice.voice_input import VoiceInput
+    VOICE_AVAILABLE = True
+except ImportError:
+    VOICE_AVAILABLE = False
 
 
 def print_banner():
@@ -19,6 +28,7 @@ def print_banner():
     print("   Settings: settings | set | tokens | temp | name")
     print("   Memory:   remember | recall | smartrecall | memories | forget")
     print("   Notes:    note | notes | findnote | delnote")
+    print("   Voice:    voice | v | voice5 | voice10 | voiceauto | mictest")
     print("   Other:    stats | logs")
     print("=" * 55)
     print()
@@ -76,32 +86,29 @@ def semantic_search(brain):
         return
     results = brain.semantic_search(query, n_results=5)
     if not results:
-        print(f"\n📭 Nothing found for '{query}'.\n")
+        print(f"\n📭 Nothing found.\n")
         return
-    print(f"\n🔍 Found {len(results)} results (by meaning):\n")
+    print(f"\n🔍 Found {len(results)} results:\n")
     for r in results:
         role = r.get("metadata", {}).get("role", "?")
         icon = "👤" if role == "user" else "🕷️"
-        conv = r.get("metadata", {}).get("conv_id", "?")
-        dist = round(r.get("distance", 0), 3)
         print(f"   {icon} {r['content'][:60]}...")
-        print(f"      📂 Conv: {conv} | Distance: {dist}")
         print()
 
 
 def search_exact(brain):
-    query = input("🔍 Search exact: ").strip()
+    query = input("🔍 Search: ").strip()
     if not query:
         return
     results = brain.search_chats(query)
     if not results:
-        print(f"\n📭 Nothing found for '{query}'.\n")
+        print(f"\n📭 Nothing found.\n")
         return
     print(f"\n🔍 Found {len(results)} results:\n")
     for msg in results[:10]:
         icon = "👤" if msg["role"] == "user" else "🕷️"
         print(f"   {icon} {msg['content'][:60]}...")
-        print()
+    print()
 
 
 def search_summaries(brain):
@@ -110,13 +117,12 @@ def search_summaries(brain):
         return
     results = brain.search_summaries(query)
     if not results:
-        print(f"\n📭 No summaries found.\n")
+        print(f"\n📭 No summaries.\n")
         return
     print(f"\n🔍 Found {len(results)} summaries:\n")
     for r in results:
         print(f"   📝 {r['content'][:60]}...")
-        print(f"      📂 Conv: {r.get('conv_id', '?')}")
-        print()
+    print()
 
 
 def show_providers(brain):
@@ -144,7 +150,7 @@ def switch_provider(brain):
 
 
 def remember_something(brain):
-    key = input("   📝 Key (e.g., favorite_color): ").strip()
+    key = input("   📝 Key: ").strip()
     if not key:
         return
     value = input(f"   📝 Value: ").strip()
@@ -156,7 +162,7 @@ def remember_something(brain):
 
 
 def recall_something(brain):
-    key = input("   🧠 Key to recall: ").strip()
+    key = input("   🧠 Key: ").strip()
     if not key:
         return
     value = brain.recall(key)
@@ -195,7 +201,7 @@ def show_memories(brain):
 
 def forget_something(brain):
     show_memories(brain)
-    key = input("   🗑️ Key to forget: ").strip()
+    key = input("   🗑️ Key: ").strip()
     if key and brain.forget(key):
         print(f"\n   ✅ Forgot: {key}\n")
 
@@ -264,8 +270,7 @@ def show_stats(brain):
     print(f"   🔢 Tokens: {stats['total_tokens']}")
     print(f"   📝 Notes: {stats['total_notes']}")
     print(f"   🧠 Memories: {stats['total_preferences']}")
-    print(f"   🔍 Vector Messages: {stats.get('vector_messages', 0)}")
-    print(f"   📄 Vector Summaries: {stats.get('vector_summaries', 0)}")
+    print(f"   🔍 Vectors: {stats.get('vector_messages', 0)}")
     print("=" * 55 + "\n")
 
 
@@ -281,6 +286,16 @@ def show_logs():
     print()
 
 
+def handle_voice_input(voice, mode="fixed", duration=5):
+    """Handle voice input and return text"""
+    if not voice or not voice.is_available():
+        print("\n   ❌ Voice not available!\n")
+        return None
+
+    text = voice.listen(mode=mode, duration=duration)
+    return text
+
+
 def main():
     print_banner()
 
@@ -289,18 +304,30 @@ def main():
     info = brain.get_provider_info()
     username = settings.get("username", "User")
 
+    # Initialize voice
+    voice = None
+    if VOICE_AVAILABLE:
+        try:
+            voice = VoiceInput(whisper_model="base")
+            if voice.is_available():
+                print("   🎤 Voice input: READY")
+            else:
+                print("   🎤 Voice input: NOT AVAILABLE")
+                voice = None
+        except Exception as e:
+            print(f"   🎤 Voice error: {e}")
+            voice = None
+
     log_startup(info['name'], settings.get_all())
 
-    print(f"🕷️ Spidey: Hey {username}! How can I help?")
+    print(f"\n🕷️ Spidey: Hey {username}! How can I help?")
     print(f"   🤖 {info['name']}")
 
     memories = brain.get_all_memories()
     if memories:
         print(f"   🧠 I remember {len(memories)} things about you!")
 
-    stats = brain.get_stats()
-    if stats['total_conversations'] > 0:
-        print(f"   📊 {stats['total_conversations']} chats, {stats['total_messages']} messages")
+    print(f"   💡 Type 'voice' or 'v' to speak!")
     print()
 
     while True:
@@ -314,6 +341,7 @@ def main():
 
             cmd = user_input.lower()
 
+            # === QUIT ===
             if cmd in ["quit", "exit", "bye", "q"]:
                 count = brain.get_history_count()
                 log_shutdown(count)
@@ -321,6 +349,55 @@ def main():
                 brain.close()
                 break
 
+            # === VOICE COMMANDS ===
+            if cmd in ["voice", "v"]:
+                text = handle_voice_input(voice, mode="fixed", duration=5)
+                if text:
+                    print()
+                    print("🕷️ Spidey: ", end="")
+                    response = brain.chat(text)
+                    print(response)
+                    print()
+                continue
+
+            if cmd == "voice5":
+                text = handle_voice_input(voice, mode="fixed", duration=5)
+                if text:
+                    print()
+                    print("🕷️ Spidey: ", end="")
+                    response = brain.chat(text)
+                    print(response)
+                    print()
+                continue
+
+            if cmd == "voice10":
+                text = handle_voice_input(voice, mode="fixed", duration=10)
+                if text:
+                    print()
+                    print("🕷️ Spidey: ", end="")
+                    response = brain.chat(text)
+                    print(response)
+                    print()
+                continue
+
+            if cmd == "voiceauto":
+                text = handle_voice_input(voice, mode="auto")
+                if text:
+                    print()
+                    print("🕷️ Spidey: ", end="")
+                    response = brain.chat(text)
+                    print(response)
+                    print()
+                continue
+
+            if cmd == "mictest":
+                if voice:
+                    voice.test_mic()
+                else:
+                    print("\n   ❌ Voice not available!\n")
+                continue
+
+            # === CHAT ===
             if cmd == "reset":
                 brain.reset()
                 print("\n🕷️ Spidey: Fresh start! 🔄\n")
@@ -328,6 +405,8 @@ def main():
             if cmd == "count":
                 print(f"\n📊 Messages: {brain.get_history_count()}\n")
                 continue
+
+            # === HISTORY ===
             if cmd == "history":
                 show_history(brain)
                 continue
@@ -337,6 +416,8 @@ def main():
             if cmd == "delete":
                 delete_conversation(brain)
                 continue
+
+            # === SEARCH ===
             if cmd == "search":
                 search_exact(brain)
                 continue
@@ -346,6 +427,8 @@ def main():
             if cmd == "findsummary":
                 search_summaries(brain)
                 continue
+
+            # === PROVIDERS ===
             if cmd == "provider":
                 info = brain.get_provider_info()
                 print(f"\n🤖 {info['name']} | {info['model']}\n")
@@ -356,11 +439,13 @@ def main():
             if cmd == "models":
                 show_providers(brain)
                 continue
+
+            # === SETTINGS ===
             if cmd == "settings":
                 print(settings)
                 continue
             if cmd == "set":
-                print("\n⚙️ temperature | max_tokens | username | show_tokens | theme")
+                print("\n⚙️ temperature | max_tokens | username | show_tokens")
                 choice = input("   Setting: ").strip().lower()
                 if choice == "temperature":
                     try:
@@ -414,6 +499,8 @@ def main():
                     settings.set("username", v)
                     print(f"   ✅ Name: {v}\n")
                 continue
+
+            # === MEMORY ===
             if cmd == "remember":
                 remember_something(brain)
                 continue
@@ -429,6 +516,8 @@ def main():
             if cmd == "forget":
                 forget_something(brain)
                 continue
+
+            # === NOTES ===
             if cmd == "note":
                 add_note(brain)
                 continue
@@ -441,6 +530,8 @@ def main():
             if cmd == "delnote":
                 delete_note(brain)
                 continue
+
+            # === STATS & LOGS ===
             if cmd == "stats":
                 show_stats(brain)
                 continue
@@ -448,7 +539,7 @@ def main():
                 show_logs()
                 continue
 
-            # AI Chat
+            # === AI CHAT ===
             print()
             print("🕷️ Spidey: ", end="")
             response = brain.chat(user_input)
