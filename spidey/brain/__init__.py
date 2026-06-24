@@ -1,20 +1,22 @@
 """
-🧠 Spidey Brain Module
+🕷️ Spidey AI — Your Friendly Neighborhood AI Assistant
 
-Contains:
-- chat.py      — Main chat engine (SpideyBrain class)
-- providers.py — Multi-AI provider system
-- history.py   — Conversation history manager
+Features:
+- Multi-provider AI (Groq, OpenAI, DeepSeek, Ollama)
+- Persistent memory (SQLite + ChromaDB)
+- Semantic search (meaning-based)
+- Auto memory detection
+- Voice input (Whisper STT)
+- Voice output (Edge TTS)
+- Spidey Beta mode (full voice conversation)
+- Conversation history
+- Notes system
+- Logging system
+
+Author: Kashan
+Version: 0.4.0
 """
 
-from spidey.brain.chat import SpideyBrain
-from spidey.brain.providers import ProviderManager, AIProvider, PROVIDERS
-from spidey.brain.history import ChatHistory
-
-__all__ = [
-    "SpideyBrain",
-    "ProviderManager",
-    "AIProvider",
-    "PROVIDERS",
-    "ChatHistory"
-]
+__version__ = "0.4.0"
+__author__ = "Kashan"
+__app_name__ = "Spidey AI"

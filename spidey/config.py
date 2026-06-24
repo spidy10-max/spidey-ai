@@ -14,7 +14,7 @@ load_dotenv()
 
 # App Info
 APP_NAME = "Spidey AI"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.4.0"
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
 
 # ============================================================
