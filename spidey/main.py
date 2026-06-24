@@ -1,6 +1,5 @@
 """
-Spidey AI — Main Entry Point (Full Voice Support!)
-Type OR Speak to Spidey — Spidey types AND speaks back!
+Spidey AI — Main (Jarvis Mode!)
 """
 from spidey.brain.chat import SpideyBrain
 from spidey.config import settings, APP_NAME, APP_VERSION, LOGS_DIR
@@ -28,7 +27,9 @@ def print_banner():
     print("   Notes:    note | notes | findnote | delnote")
     print("   Voice:    v | voice5 | voice10 | voiceauto")
     print("   Speech:   speak | speakmode | tts | voices | saytest")
-    print("   Other:    stats | logs | mictest")
+    print("   Language: urdu | english | hindi | setvoice")
+    print("   🤖 JARVIS: jarvis")
+    print("   Other:    stats | logs | mictest | voicestatus")
     print("=" * 55)
     print()
 
@@ -56,9 +57,8 @@ def load_conversation(brain):
     try:
         index = int(input("🔢 Number: ").strip()) - 1
         if 0 <= index < len(conversations):
-            conv_id = conversations[index]["conv_id"]
-            if brain.load_conversation(conv_id):
-                print(f"\n✅ Loaded [{conv_id}]!\n")
+            if brain.load_conversation(conversations[index]["conv_id"]):
+                print(f"\n✅ Loaded!\n")
     except (ValueError, IndexError):
         print("\n❌ Invalid.\n")
 
@@ -71,56 +71,11 @@ def delete_conversation(brain):
     try:
         index = int(input("🔢 Number: ").strip()) - 1
         if 0 <= index < len(conversations):
-            conv_id = conversations[index]["conv_id"]
-            if input(f"⚠️ Delete? (y/n): ").strip().lower() in ["y", "yes"]:
-                if brain.delete_conversation(conv_id):
+            if input("⚠️ Delete? (y/n): ").strip().lower() in ["y", "yes"]:
+                if brain.delete_conversation(conversations[index]["conv_id"]):
                     print(f"\n🗑️ Deleted!\n")
     except (ValueError, IndexError):
         print("\n❌ Invalid.\n")
-
-
-def semantic_search(brain):
-    query = input("🔍 Smart search: ").strip()
-    if not query:
-        return
-    results = brain.semantic_search(query, n_results=5)
-    if not results:
-        print(f"\n📭 Nothing found.\n")
-        return
-    print(f"\n🔍 Found {len(results)} results:\n")
-    for r in results:
-        role = r.get("metadata", {}).get("role", "?")
-        icon = "👤" if role == "user" else "🕷️"
-        print(f"   {icon} {r['content'][:60]}...")
-    print()
-
-
-def search_exact(brain):
-    query = input("🔍 Search: ").strip()
-    if not query:
-        return
-    results = brain.search_chats(query)
-    if not results:
-        print(f"\n📭 Nothing found.\n")
-        return
-    print(f"\n🔍 Found {len(results)} results:\n")
-    for msg in results[:10]:
-        icon = "👤" if msg["role"] == "user" else "🕷️"
-        print(f"   {icon} {msg['content'][:60]}...")
-    print()
-
-
-def search_summaries(brain):
-    query = input("🔍 Search summaries: ").strip()
-    if not query:
-        return
-    results = brain.search_summaries(query)
-    if not results:
-        print(f"\n📭 No summaries.\n")
-        return
-    for r in results:
-        print(f"   📝 {r['content'][:60]}...")
-    print()
 
 
 def show_providers(brain):
@@ -130,177 +85,43 @@ def show_providers(brain):
     print("\n" + "=" * 55)
     for key, config in all_p.items():
         status = "✅" if key == current else ("🟢" if key in available else "🔴")
-        free = "FREE" if config["free"] else "PAID"
-        print(f"   {status} {key} — {config['name']} ({free})")
-    print("=" * 55 + "\n")
-
-
-def switch_provider(brain):
-    show_providers(brain)
-    choice = input("🔢 Provider: ").strip().lower()
-    if brain.switch_provider(choice):
-        print(f"\n✅ Switched!\n")
-    else:
-        print("\n❌ Could not switch.\n")
-
-
-def remember_something(brain):
-    key = input("   📝 Key: ").strip()
-    if not key:
-        return
-    value = input(f"   📝 Value: ").strip()
-    if not value:
-        return
-    category = input("   📁 Category: ").strip() or "general"
-    if brain.remember(key, value, category):
-        print(f"\n   ✅ Remembered: {key} = {value}\n")
-
-
-def recall_something(brain):
-    key = input("   🧠 Key: ").strip()
-    if not key:
-        return
-    value = brain.recall(key)
-    if value:
-        print(f"\n   🧠 {key} = {value}\n")
-    else:
-        print(f"\n   ❌ Don't remember '{key}'\n")
-
-
-def smart_recall(brain):
-    query = input("   🧠 Smart recall: ").strip()
-    if not query:
-        return
-    results = brain.smart_recall(query)
-    if not results:
-        print(f"\n   ❌ No memories found.\n")
-        return
-    for r in results:
-        print(f"      • {r['content']}")
-    print()
-
-
-def show_memories(brain):
-    memories = brain.get_all_memories()
-    if not memories:
-        print("\n📭 No memories.\n")
-        return
-    print("\n   🧠 MEMORIES:")
-    for key, info in memories.items():
-        print(f"   • {key}: {info['value']} ({info['category']})")
-    print()
-
-
-def forget_something(brain):
-    show_memories(brain)
-    key = input("   🗑️ Key: ").strip()
-    if key and brain.forget(key):
-        print(f"\n   ✅ Forgot: {key}\n")
-
-
-def add_note(brain):
-    title = input("   📝 Title: ").strip()
-    if not title:
-        return
-    content = input("   📝 Content: ").strip()
-    if not content:
-        return
-    category = input("   📁 Category: ").strip() or "general"
-    important = input("   ⭐ Important? (y/n): ").strip().lower() in ["y", "yes"]
-    if brain.add_note(title, content, category, important):
-        print(f"\n   ✅ Note added!\n")
-
-
-def show_notes(brain):
-    notes = brain.get_notes()
-    if not notes:
-        print("\n📭 No notes.\n")
-        return
-    for note in notes:
-        star = "⭐" if note["is_important"] else "  "
-        print(f"   {star} [{note['id']}] {note['title']}: {note['content'][:40]}")
-    print()
-
-
-def find_note(brain):
-    query = input("   🔍 Search: ").strip()
-    if not query:
-        return
-    results = brain.search_notes(query)
-    if results:
-        for r in results:
-            print(f"      • {r['content'][:60]}...")
-    else:
-        print("   ❌ Nothing found.")
-    print()
-
-
-def delete_note(brain):
-    show_notes(brain)
-    try:
-        note_id = int(input("   🗑️ Note ID: ").strip())
-        if brain.delete_note(note_id):
-            print(f"\n   ✅ Deleted!\n")
-    except ValueError:
-        print("\n   ❌ Enter a number.\n")
-
-
-def show_stats(brain):
-    stats = brain.get_stats()
-    print(f"\n   📊 STATS:")
-    print(f"   💬 Conversations: {stats['total_conversations']}")
-    print(f"   📨 Messages: {stats['total_messages']}")
-    print(f"   🔢 Tokens: {stats['total_tokens']}")
-    print(f"   📝 Notes: {stats['total_notes']}")
-    print(f"   🧠 Memories: {stats['total_preferences']}")
-    print()
-
-
-def show_voice_status(vm):
-    """Show voice system status"""
-    status = vm.get_status()
-    print("\n" + "=" * 55)
-    print("   🎤 VOICE STATUS")
-    print("=" * 55)
-    print(f"   🎤 Input:  {'✅ Ready' if status['voice_input'] else '❌ Not available'}")
-    print(f"   🗣️ Output: {'✅ Ready' if status['voice_output'] else '❌ Not available'}")
-    print(f"   🔊 Speak mode: {'ON 🟢' if status['speak_enabled'] else 'OFF 🔴'}")
-    print(f"   🎤 Listen mode: {status['listen_mode']}")
-    print(f"   ⏱️ Duration: {status['listen_duration']}s")
-    print(f"   🗣️ TTS Engine: {status['tts_engine']}")
+        print(f"   {status} {key} — {config['name']}")
     print("=" * 55 + "\n")
 
 
 def show_voices(vm):
-    """Show available voices"""
     voices = vm.get_voices()
-    if not voices:
-        print("\n   ❌ No voices available.\n")
-        return
-    print("\n   🗣️ AVAILABLE VOICES:")
-    for v in voices:
-        print(f"   [{v['engine']}] {v['name']}")
-        print(f"      ID: {v['id']}")
+    current_v = vm.get_current_voice().get("voice", "")
+    print("\n   🗣️ VOICES:")
+    for i, v in enumerate(voices, 1):
+        active = " ← ACTIVE" if v["id"] == current_v else ""
+        print(f"   {i}. [{v['language']}] {v['name']} ({v['engine']}){active}")
     print()
 
 
-def switch_tts(vm):
-    """Switch TTS engine"""
-    print("\n   TTS Engines:")
-    print("   1. system — Offline (pyttsx3)")
-    print("   2. edge   — Online, better quality (Microsoft)")
-    choice = input("\n   Choose (system/edge): ").strip().lower()
-    if vm.switch_tts_engine(choice):
-        print(f"\n   ✅ Switched to {choice}!\n")
-    else:
-        print(f"\n   ❌ Could not switch.\n")
+def show_voice_status(vm):
+    status = vm.get_status()
+    print("\n" + "=" * 55)
+    print("   🎤 VOICE STATUS")
+    print("=" * 55)
+    print(f"   🎤 Input:  {'✅' if status['voice_input'] else '❌'}")
+    print(f"   🗣️ Output: {'✅' if status['voice_output'] else '❌'}")
+    print(f"   🔊 Speak:  {'ON 🟢' if status['speak_enabled'] else 'OFF 🔴'}")
+    print(f"   🤖 Jarvis: {'ON 🟢' if status['jarvis_mode'] else 'OFF 🔴'}")
+    print(f"   🎤 Mode:   {status['listen_mode']}")
+    print(f"   ⏱️ Duration: {status['listen_duration']}s")
+    print(f"   🗣️ Engine: {status['tts_engine']}")
+    v = status.get('current_voice', {})
+    print(f"   🗣️ Voice:  {v.get('voice', 'N/A')}")
+    print(f"   🌍 Lang:   {v.get('language', 'N/A')}")
+    print("=" * 55 + "\n")
 
 
 def main():
     print_banner()
 
     brain = SpideyBrain()
-    conv_id = brain.start_new_conversation()
+    brain.start_new_conversation()
     info = brain.get_provider_info()
     username = settings.get("username", "User")
 
@@ -308,35 +129,30 @@ def main():
     vm = None
     if VOICE_AVAILABLE:
         try:
-            vm = VoiceManager(whisper_model="base", tts_engine="system")
-            input_ok = vm.is_input_available()
-            output_ok = vm.is_output_available()
-            print(f"   🎤 Voice input:  {'✅ Ready' if input_ok else '❌ Not available'}")
-            print(f"   🗣️ Voice output: {'✅ Ready' if output_ok else '❌ Not available'}")
+            vm = VoiceManager(whisper_model="base", tts_engine="edge")
+            print(f"   🎤 Input:  {'✅' if vm.is_input_available() else '❌'}")
+            print(f"   🗣️ Output: {'✅' if vm.is_output_available() else '❌'}")
+            print(f"   🗣️ Voice:  Jenny (US Female)")
         except Exception as e:
             print(f"   🎤 Voice error: {e}")
             vm = None
-    else:
-        print("   🎤 Voice: Not installed")
 
     log_startup(info['name'], settings.get_all())
 
-    print(f"\n🕷️ Spidey: Hey {username}! How can I help?")
+    print(f"\n🕷️ Spidey: Hey {username}!")
     print(f"   🤖 {info['name']}")
 
     memories = brain.get_all_memories()
     if memories:
-        print(f"   🧠 I remember {len(memories)} things about you!")
+        print(f"   🧠 I remember {len(memories)} things!")
 
-    print(f"   💡 Type 'v' to speak | 'speakmode' for auto-speak")
+    print(f"   💡 Type 'jarvis' for hands-free voice mode!")
     print()
 
     while True:
         try:
             provider = brain.get_provider_name()
             username = settings.get("username", "User")
-
-            # Voice mode indicator
             speak_icon = "🔊" if (vm and vm.speak_enabled) else ""
             user_input = input(f"👤 {username} [{provider}]{speak_icon}: ").strip()
 
@@ -353,16 +169,21 @@ def main():
                 print(f"\n🕷️ Spidey: {farewell} 🕸️")
                 if vm and vm.speak_enabled:
                     vm.speak(farewell)
-                print()
                 brain.close()
                 break
 
-            # === VOICE INPUT COMMANDS ===
+            # === 🤖 JARVIS MODE ===
+            if cmd == "jarvis":
+                if vm and vm.is_input_available() and vm.is_output_available():
+                    vm.jarvis_loop(brain)
+                else:
+                    print("\n   ❌ Voice not available for Jarvis mode!\n")
+                continue
+
+            # === VOICE INPUT ===
             if cmd in ["v", "voice"]:
                 if vm:
-                    user_text, ai_response = vm.voice_chat(brain, mode="fixed", duration=5)
-                    if ai_response and vm.speak_enabled:
-                        pass  # already spoken in voice_chat
+                    vm.voice_chat(brain, mode="fixed", duration=5)
                 else:
                     print("\n   ❌ Voice not available!\n")
                 continue
@@ -388,17 +209,14 @@ def main():
                     print("\n   ❌ Voice not available!\n")
                 continue
 
-            # === SPEECH OUTPUT COMMANDS ===
+            # === SPEECH ===
             if cmd == "speakmode":
                 if vm:
                     enabled = vm.toggle_speak()
                     status = "ON 🟢" if enabled else "OFF 🔴"
                     print(f"\n   🔊 Speak mode: {status}")
                     if enabled:
-                        print("   Spidey will now SPEAK all responses!")
-                        vm.speak("Speak mode activated! I will now speak all my responses!")
-                    else:
-                        print("   Spidey will only type responses.")
+                        vm.speak("Speak mode on! I will speak all responses!")
                     print()
                 else:
                     print("\n   ❌ Voice not available!\n")
@@ -406,7 +224,7 @@ def main():
 
             if cmd == "speak":
                 if vm:
-                    text = input("   🗣️ Text to speak: ").strip()
+                    text = input("   🗣️ Text: ").strip()
                     if text:
                         vm.speak(text)
                 else:
@@ -415,44 +233,83 @@ def main():
 
             if cmd == "saytest":
                 if vm:
-                    print("   🗣️ Testing speech...")
-                    vm.test_speak("Hello! I am Spidey AI, your friendly neighborhood assistant!")
+                    vm.test_speak("Hello! I am Spidey AI, your personal Jarvis!")
                 else:
                     print("\n   ❌ Voice not available!\n")
                 continue
 
             if cmd == "tts":
                 if vm:
-                    switch_tts(vm)
-                else:
-                    print("\n   ❌ Voice not available!\n")
+                    print("\n   1. system (offline)")
+                    print("   2. edge (online, better)")
+                    c = input("   Choose (system/edge): ").strip().lower()
+                    if vm.switch_tts_engine(c):
+                        print(f"\n   ✅ Switched to {c}!\n")
                 continue
 
             if cmd == "voices":
                 if vm:
                     show_voices(vm)
-                else:
-                    print("\n   ❌ Voice not available!\n")
                 continue
 
             if cmd == "voicestatus":
                 if vm:
                     show_voice_status(vm)
-                else:
-                    print("\n   ❌ Voice not available!\n")
                 continue
 
             if cmd == "mictest":
                 if vm:
                     vm.test_mic()
-                else:
-                    print("\n   ❌ Voice not available!\n")
+                continue
+
+            # === LANGUAGE ===
+            if cmd == "urdu":
+                if vm:
+                    vm.set_language("ur")
+                    print("\n   ✅ Urdu voice!")
+                    vm.speak("السلام علیکم! میں سپائیڈی اے آئی ہوں!")
+                    print()
+                continue
+
+            if cmd == "english":
+                if vm:
+                    vm.set_language("en")
+                    print("\n   ✅ English voice!")
+                    vm.speak("Hello! Back to English!")
+                    print()
+                continue
+
+            if cmd == "hindi":
+                if vm:
+                    vm.set_language("hi")
+                    print("\n   ✅ Hindi voice!")
+                    vm.speak("नमस्ते! मैं स्पाइडी हूँ!")
+                    print()
+                continue
+
+            if cmd == "setvoice":
+                if vm:
+                    voices = vm.get_voices()
+                    current_v = vm.get_current_voice().get("voice", "")
+                    print("\n   🗣️ Voices:")
+                    for i, v in enumerate(voices, 1):
+                        active = " ← ACTIVE" if v["id"] == current_v else ""
+                        print(f"   {i}. [{v['language']}] {v['name']}{active}")
+                    try:
+                        c = int(input("\n   🔢 Number: ").strip()) - 1
+                        if 0 <= c < len(voices):
+                            vm.voice_output.set_voice(voices[c]["id"])
+                            print(f"\n   ✅ Voice: {voices[c]['name']}")
+                            vm.speak(f"Hello! I am now {voices[c]['name']}!")
+                            print()
+                    except (ValueError, IndexError):
+                        print("   ❌ Invalid\n")
                 continue
 
             # === CHAT ===
             if cmd == "reset":
                 brain.reset()
-                print("\n🕷️ Spidey: Fresh start! 🔄\n")
+                print("\n🕷️ Fresh start! 🔄\n")
                 continue
             if cmd == "count":
                 print(f"\n📊 Messages: {brain.get_history_count()}\n")
@@ -471,22 +328,38 @@ def main():
 
             # === SEARCH ===
             if cmd == "search":
-                search_exact(brain)
+                q = input("🔍 Search: ").strip()
+                if q:
+                    results = brain.search_chats(q)
+                    if results:
+                        for m in results[:5]:
+                            print(f"   {'👤' if m['role']=='user' else '🕷️'} {m['content'][:60]}...")
+                    else:
+                        print("   📭 Nothing found.")
+                    print()
                 continue
             if cmd == "smart":
-                semantic_search(brain)
-                continue
-            if cmd == "findsummary":
-                search_summaries(brain)
+                q = input("🔍 Smart: ").strip()
+                if q:
+                    results = brain.semantic_search(q)
+                    if results:
+                        for r in results[:5]:
+                            print(f"   📝 {r['content'][:60]}...")
+                    else:
+                        print("   📭 Nothing found.")
+                    print()
                 continue
 
             # === PROVIDERS ===
             if cmd == "provider":
-                info = brain.get_provider_info()
-                print(f"\n🤖 {info['name']} | {info['model']}\n")
+                i = brain.get_provider_info()
+                print(f"\n🤖 {i['name']}\n")
                 continue
             if cmd == "switch":
-                switch_provider(brain)
+                show_providers(brain)
+                c = input("🔢 Provider: ").strip().lower()
+                if brain.switch_provider(c):
+                    print(f"\n✅ Switched!\n")
                 continue
             if cmd == "models":
                 show_providers(brain)
@@ -496,39 +369,6 @@ def main():
             if cmd == "settings":
                 print(settings)
                 continue
-            if cmd == "set":
-                print("\n⚙️ temperature | max_tokens | username | show_tokens")
-                choice = input("   Setting: ").strip().lower()
-                if choice == "temperature":
-                    try:
-                        val = float(input("   Value (0.0-2.0): "))
-                        if 0.0 <= val <= 2.0:
-                            settings.set("temperature", val)
-                            brain.update_settings()
-                            print(f"   ✅ Temperature: {val}\n")
-                    except ValueError:
-                        print("   ❌ Enter a number\n")
-                elif choice == "max_tokens":
-                    try:
-                        val = int(input("   Value (100-4096): "))
-                        if 100 <= val <= 4096:
-                            settings.set("max_tokens", val)
-                            brain.update_settings()
-                            print(f"   ✅ Max tokens: {val}\n")
-                    except ValueError:
-                        print("   ❌ Enter a number\n")
-                elif choice == "username":
-                    val = input("   Name: ").strip()
-                    if val:
-                        settings.set("username", val)
-                        brain.memory.update_user(username=val)
-                        print(f"   ✅ Name: {val}\n")
-                elif choice == "show_tokens":
-                    cur = settings.get("show_tokens", False)
-                    settings.set("show_tokens", not cur)
-                    brain.update_settings()
-                    print(f"   ✅ Tokens: {'ON' if not cur else 'OFF'}\n")
-                continue
             if cmd == "tokens":
                 cur = settings.get("show_tokens", False)
                 settings.set("show_tokens", not cur)
@@ -537,64 +377,82 @@ def main():
                 continue
             if cmd == "temp":
                 try:
-                    val = float(input("   🌡️ Temperature (0.0-2.0): "))
-                    if 0.0 <= val <= 2.0:
-                        settings.set("temperature", val)
+                    v = float(input("   🌡️ (0.0-2.0): "))
+                    if 0.0 <= v <= 2.0:
+                        settings.set("temperature", v)
                         brain.update_settings()
-                        print(f"   ✅ Temperature: {val}\n")
+                        print(f"   ✅ Temp: {v}\n")
                 except ValueError:
-                    print("   ❌ Enter a number\n")
+                    pass
                 continue
             if cmd == "name":
-                val = input("   📝 Name: ").strip()
-                if val:
-                    settings.set("username", val)
-                    print(f"   ✅ Name: {val}\n")
+                v = input("   📝 Name: ").strip()
+                if v:
+                    settings.set("username", v)
+                    print(f"   ✅ Name: {v}\n")
                 continue
 
             # === MEMORY ===
             if cmd == "remember":
-                remember_something(brain)
+                k = input("   📝 Key: ").strip()
+                v = input("   📝 Value: ").strip() if k else ""
+                c = input("   📁 Category: ").strip() or "general" if v else ""
+                if k and v:
+                    brain.remember(k, v, c)
+                    print(f"\n   ✅ {k} = {v}\n")
                 continue
             if cmd == "recall":
-                recall_something(brain)
+                k = input("   🧠 Key: ").strip()
+                if k:
+                    v = brain.recall(k)
+                    print(f"\n   🧠 {k} = {v}\n" if v else f"\n   ❌ Unknown\n")
                 continue
             if cmd == "smartrecall":
-                smart_recall(brain)
+                q = input("   🧠 Query: ").strip()
+                if q:
+                    for r in brain.smart_recall(q):
+                        print(f"      • {r['content']}")
+                    print()
                 continue
             if cmd == "memories":
-                show_memories(brain)
+                m = brain.get_all_memories()
+                if m:
+                    for k, i in m.items():
+                        print(f"   • {k}: {i['value']}")
+                else:
+                    print("   📭 No memories.")
+                print()
                 continue
             if cmd == "forget":
-                forget_something(brain)
+                k = input("   🗑️ Key: ").strip()
+                if k and brain.forget(k):
+                    print(f"   ✅ Forgot: {k}\n")
                 continue
 
             # === NOTES ===
             if cmd == "note":
-                add_note(brain)
+                t = input("   📝 Title: ").strip()
+                c = input("   📝 Content: ").strip() if t else ""
+                if t and c:
+                    brain.add_note(t, c)
+                    print("   ✅ Added!\n")
                 continue
             if cmd == "notes":
-                show_notes(brain)
-                continue
-            if cmd == "findnote":
-                find_note(brain)
-                continue
-            if cmd == "delnote":
-                delete_note(brain)
+                for n in brain.get_notes():
+                    star = "⭐" if n["is_important"] else "  "
+                    print(f"   {star}[{n['id']}] {n['title']}: {n['content'][:40]}")
+                print()
                 continue
 
-            # === STATS & LOGS ===
+            # === STATS ===
             if cmd == "stats":
-                show_stats(brain)
+                s = brain.get_stats()
+                print(f"\n   💬 {s['total_conversations']} convs | 📨 {s['total_messages']} msgs | 🧠 {s['total_preferences']} memories\n")
                 continue
             if cmd == "logs":
                 if os.path.exists(LOGS_DIR):
-                    files = sorted(os.listdir(LOGS_DIR), reverse=True)
-                    for f in files[:5]:
-                        size = round(os.path.getsize(os.path.join(LOGS_DIR, f)) / 1024, 1)
-                        print(f"   📄 {f} ({size} KB)")
-                else:
-                    print("   📭 No logs.")
+                    for f in sorted(os.listdir(LOGS_DIR), reverse=True)[:5]:
+                        print(f"   📄 {f}")
                 print()
                 continue
 
@@ -605,13 +463,13 @@ def main():
             print(response)
             print()
 
-            # Speak response if speak mode is ON
-            if vm and vm.speak_enabled:
+            # ALWAYS speak if speak mode ON
+            if vm and vm.speak_enabled and response:
                 vm.speak(response)
 
         except KeyboardInterrupt:
             log_shutdown(brain.get_history_count())
-            print("\n\n🕷️ Spidey: Bye! 🕸️\n")
+            print("\n\n🕷️ Bye! 🕸️\n")
             brain.close()
             break
 
