@@ -1,6 +1,6 @@
 """
-Spidey AI — Voice Output (Jarvis-like reliable speech)
-Default: Jenny (US Female) — Edge TTS
+Spidey AI — Voice Output (Wake Word Interruptible!)
+Says "Spidey" → Stops speaking → Listens to you
 """
 import os
 import asyncio
@@ -31,28 +31,22 @@ except ImportError:
 
 
 class VoiceOutput:
-    """Text-to-Speech — Jarvis-like reliable speech"""
+    """Text-to-Speech with background play support"""
 
     def __init__(self, engine="edge"):
-        """Default engine = edge for better quality"""
         self.engine_name = "edge" if EDGE_TTS_AVAILABLE else "system"
         self.pyttsx3_engine = None
         self.rate = 175
         self.volume = 1.0
         self.voice_id = None
-        # DEFAULT VOICE = Jenny (US Female)
         self.edge_voice = "en-US-JennyNeural"
         self.language = "en"
+        self._current_process = None
 
-        if self.engine_name == "edge" and EDGE_TTS_AVAILABLE:
-            app_logger.info(f"Edge TTS initialized — Voice: {self.edge_voice}")
-        elif PYTTSX3_AVAILABLE:
-            self._init_pyttsx3()
-        else:
-            app_logger.error("No TTS engine available!")
+        if self.engine_name == "edge":
+            app_logger.info(f"Edge TTS — Voice: {self.edge_voice}")
 
-        # Also init pyttsx3 as backup
-        if PYTTSX3_AVAILABLE and not self.pyttsx3_engine:
+        if PYTTSX3_AVAILABLE:
             try:
                 self.pyttsx3_engine = pyttsx3.init()
                 self.pyttsx3_engine.setProperty('rate', self.rate)
@@ -60,31 +54,35 @@ class VoiceOutput:
             except Exception:
                 pass
 
-    def _init_pyttsx3(self):
-        """Initialize pyttsx3"""
-        try:
-            self.pyttsx3_engine = pyttsx3.init()
-            self.pyttsx3_engine.setProperty('rate', self.rate)
-            self.pyttsx3_engine.setProperty('volume', self.volume)
-
-            voices = self.pyttsx3_engine.getProperty('voices')
-            if voices:
-                for voice in voices:
-                    if "zira" in voice.name.lower():
-                        self.pyttsx3_engine.setProperty('voice', voice.id)
-                        self.voice_id = voice.id
-                        break
-
-            self.engine_name = "system"
-            app_logger.info("pyttsx3 TTS initialized")
-        except Exception as e:
-            log_error(str(e), "VoiceOutput._init_pyttsx3")
-            self.pyttsx3_engine = None
-
     def speak(self, text):
+        """Speak FULL text — blocking (waits till done)"""
+        if not text or not text.strip():
+            return False
+
+        clean_text = self._clean_for_speech(text)
+        if not clean_text or len(clean_text.strip()) < 2:
+            return False
+
+        for attempt in range(2):
+            try:
+                if self.engine_name == "edge" and EDGE_TTS_AVAILABLE:
+                    if self._speak_edge(clean_text):
+                        return True
+                elif self.pyttsx3_engine:
+                    if self._speak_pyttsx3(clean_text):
+                        return True
+            except Exception as e:
+                log_error(str(e), f"speak attempt {attempt+1}")
+            time.sleep(0.3)
+
+        return self._fallback_speak(clean_text)
+
+    def speak_background(self, text):
         """
-        ALWAYS speak — tries edge first, then pyttsx3 as backup
-        Returns True if spoken successfully
+        Start speaking in BACKGROUND — returns immediately!
+        Audio plays while you can do other things.
+        Use is_speaking() to check if still playing.
+        Use stop() to kill audio.
         """
         if not text or not text.strip():
             return False
@@ -93,67 +91,24 @@ class VoiceOutput:
         if not clean_text or len(clean_text.strip()) < 2:
             return False
 
-        # Try primary engine
-        success = False
-
         try:
             if self.engine_name == "edge" and EDGE_TTS_AVAILABLE:
-                success = self._speak_edge(clean_text)
+                return self._speak_edge_background(clean_text)
             elif self.pyttsx3_engine:
-                success = self._speak_pyttsx3(clean_text)
+                # pyttsx3 doesn't support background well, use blocking
+                self._speak_pyttsx3(clean_text)
+                return True
         except Exception as e:
-            log_error(str(e), "VoiceOutput.speak primary")
+            log_error(str(e), "speak_background")
 
-        # Fallback if primary failed
-        if not success:
-            success = self._fallback_speak(clean_text)
-
-        return success
-
-    def _fallback_speak(self, text):
-        """Try alternate engine"""
-        try:
-            if self.engine_name == "edge" and self.pyttsx3_engine:
-                return self._speak_pyttsx3(text)
-            elif self.engine_name == "system" and EDGE_TTS_AVAILABLE:
-                return self._speak_edge(text)
-        except Exception as e:
-            log_error(str(e), "VoiceOutput._fallback_speak")
         return False
 
-    def _speak_pyttsx3(self, text):
-        """Speak using pyttsx3"""
+    def _speak_edge_background(self, text):
+        """Generate audio and play in background"""
         try:
-            if not self.pyttsx3_engine:
-                self.pyttsx3_engine = pyttsx3.init()
-                self.pyttsx3_engine.setProperty('rate', self.rate)
-                self.pyttsx3_engine.setProperty('volume', self.volume)
+            temp_file = os.path.join(AUDIO_DIR, f"tts_{int(time.time() * 1000)}.mp3")
 
-            self.pyttsx3_engine.say(text)
-            self.pyttsx3_engine.runAndWait()
-            return True
-
-        except RuntimeError:
-            try:
-                self.pyttsx3_engine = pyttsx3.init()
-                self.pyttsx3_engine.setProperty('rate', self.rate)
-                self.pyttsx3_engine.setProperty('volume', self.volume)
-                self.pyttsx3_engine.say(text)
-                self.pyttsx3_engine.runAndWait()
-                return True
-            except Exception as e:
-                log_error(str(e), "VoiceOutput._speak_pyttsx3 retry")
-                return False
-        except Exception as e:
-            log_error(str(e), "VoiceOutput._speak_pyttsx3")
-            return False
-
-    def _speak_edge(self, text):
-        """Speak using edge-tts"""
-        try:
-            temp_file = os.path.join(AUDIO_DIR, f"tts_{int(time.time())}.mp3")
-
-            # Generate speech
+            # Generate audio file
             try:
                 asyncio.run(self._edge_generate(text, temp_file))
             except RuntimeError:
@@ -162,48 +117,136 @@ class VoiceOutput:
                 loop.run_until_complete(self._edge_generate(text, temp_file))
                 loop.close()
 
-            # Play
             if os.path.exists(temp_file) and os.path.getsize(temp_file) > 100:
-                self._play_audio(temp_file)
-                time.sleep(0.3)
-                try:
-                    os.remove(temp_file)
-                except Exception:
-                    pass
+                # Start playing in BACKGROUND (non-blocking!)
+                self._current_process = subprocess.Popen(
+                    ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", temp_file]
+                )
+                # Store temp file path for cleanup
+                self._current_temp_file = temp_file
                 return True
-            else:
-                log_error("Edge TTS file empty or not created", "_speak_edge")
-                return False
 
+            return False
         except Exception as e:
-            log_error(str(e), "VoiceOutput._speak_edge")
+            log_error(str(e), "_speak_edge_background")
+            return False
+
+    def is_speaking(self):
+        """Check if audio is still playing"""
+        if self._current_process:
+            return self._current_process.poll() is None
+        return False
+
+    def stop(self):
+        """Stop current speech IMMEDIATELY"""
+        if self._current_process:
+            try:
+                self._current_process.kill()
+                self._current_process.wait(timeout=2)
+            except Exception:
+                pass
+            self._current_process = None
+
+        # Cleanup temp file
+        if hasattr(self, '_current_temp_file') and self._current_temp_file:
+            time.sleep(0.3)
+            try:
+                if os.path.exists(self._current_temp_file):
+                    os.remove(self._current_temp_file)
+            except Exception:
+                pass
+            self._current_temp_file = None
+
+        # Stop pyttsx3
+        if self.pyttsx3_engine:
+            try:
+                self.pyttsx3_engine.stop()
+            except Exception:
+                pass
+
+    def wait_until_done(self):
+        """Wait until speech finishes, then cleanup"""
+        if self._current_process:
+            try:
+                self._current_process.wait(timeout=120)
+            except subprocess.TimeoutExpired:
+                self._current_process.kill()
+            except Exception:
+                pass
+            self._current_process = None
+
+        # Cleanup temp file
+        if hasattr(self, '_current_temp_file') and self._current_temp_file:
+            time.sleep(0.3)
+            try:
+                if os.path.exists(self._current_temp_file):
+                    os.remove(self._current_temp_file)
+            except Exception:
+                pass
+            self._current_temp_file = None
+
+    def _fallback_speak(self, text):
+        try:
+            if self.engine_name == "edge" and self.pyttsx3_engine:
+                return self._speak_pyttsx3(text)
+            elif self.engine_name == "system" and EDGE_TTS_AVAILABLE:
+                return self._speak_edge(text)
+        except Exception:
+            pass
+        return False
+
+    def _speak_pyttsx3(self, text):
+        try:
+            if not self.pyttsx3_engine:
+                self.pyttsx3_engine = pyttsx3.init()
+                self.pyttsx3_engine.setProperty('rate', self.rate)
+                self.pyttsx3_engine.setProperty('volume', self.volume)
+            self.pyttsx3_engine.say(text)
+            self.pyttsx3_engine.runAndWait()
+            return True
+        except RuntimeError:
+            try:
+                self.pyttsx3_engine = pyttsx3.init()
+                self.pyttsx3_engine.setProperty('rate', self.rate)
+                self.pyttsx3_engine.setProperty('volume', self.volume)
+                self.pyttsx3_engine.say(text)
+                self.pyttsx3_engine.runAndWait()
+                return True
+            except Exception:
+                return False
+        except Exception:
+            return False
+
+    def _speak_edge(self, text):
+        """Blocking edge speech"""
+        try:
+            temp_file = os.path.join(AUDIO_DIR, f"tts_{int(time.time() * 1000)}.mp3")
+
+            try:
+                asyncio.run(self._edge_generate(text, temp_file))
+            except RuntimeError:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop.run_until_complete(self._edge_generate(text, temp_file))
+                loop.close()
+
+            if os.path.exists(temp_file) and os.path.getsize(temp_file) > 100:
+                self._current_process = subprocess.Popen(
+                    ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", temp_file]
+                )
+                self._current_temp_file = temp_file
+                self.wait_until_done()
+                return True
+            return False
+        except Exception as e:
+            log_error(str(e), "_speak_edge")
             return False
 
     async def _edge_generate(self, text, output_file):
-        """Generate speech with edge-tts"""
         communicate = edge_tts.Communicate(text, self.edge_voice)
         await communicate.save(output_file)
 
-    def _play_audio(self, filepath):
-        """Play audio using ffplay"""
-        try:
-            subprocess.run(
-                ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", filepath],
-                timeout=120
-            )
-        except FileNotFoundError:
-            try:
-                os.startfile(filepath)
-                time.sleep(5)
-            except Exception as e:
-                log_error(str(e), "_play_audio startfile")
-        except subprocess.TimeoutExpired:
-            pass
-        except Exception as e:
-            log_error(str(e), "_play_audio")
-
     def _clean_for_speech(self, text):
-        """Clean text for speech"""
         text = re.sub(r'[🕷️🎤📝✅❌🔍💬🧠📊⭐🗑️📂📄🤖💡⚙️🌡️📏🔢📨👤🕸️📋🔄⚠️🔧💻🌐📅🎉🏆🔥💪💰🆓🔑📁🛠️🎮🟢🔴🔊👋]', '', text)
         text = re.sub(r'\*+', '', text)
         text = re.sub(r'#+\s*', '', text)
@@ -282,11 +325,11 @@ class VoiceOutput:
                 pass
 
     def switch_engine(self, engine):
-        if engine == "system" and PYTTSX3_AVAILABLE:
-            self._init_pyttsx3()
-            return True
-        elif engine == "edge" and EDGE_TTS_AVAILABLE:
+        if engine == "edge" and EDGE_TTS_AVAILABLE:
             self.engine_name = "edge"
+            return True
+        elif engine == "system" and PYTTSX3_AVAILABLE:
+            self.engine_name = "system"
             return True
         return False
 
@@ -302,8 +345,6 @@ class VoiceOutput:
         }
 
     def is_available(self):
-        if self.engine_name == "system":
-            return self.pyttsx3_engine is not None
-        elif self.engine_name == "edge":
+        if self.engine_name == "edge":
             return EDGE_TTS_AVAILABLE
-        return False
+        return self.pyttsx3_engine is not None

@@ -1,6 +1,6 @@
 """
 Spidey AI — Voice Input System
-Complete pipeline: Mic → Record → Transcribe → Text
+Accurate speech recognition with language setting
 """
 from spidey.voice.recorder import AudioRecorder
 from spidey.voice.transcriber import Transcriber
@@ -9,22 +9,11 @@ import os
 
 
 class VoiceInput:
-    """
-    Complete voice input system
+    """Voice input with language support for better accuracy"""
 
-    Records audio from mic and converts to text
-    Three recording modes:
-    1. Fixed duration (e.g., 5 seconds)
-    2. Press Enter to stop
-    3. Auto-stop on silence
-    """
-
-    def __init__(self, whisper_model="base"):
+    def __init__(self, whisper_model="small"):
         """
-        Initialize voice input
-
-        Args:
-            whisper_model: tiny, base, small, medium
+        whisper_model = "small" for better accuracy
         """
         self.recorder = AudioRecorder()
         self.transcriber = Transcriber(model_size=whisper_model)
@@ -37,54 +26,21 @@ class VoiceInput:
             app_logger.warning("VoiceInput: Whisper not available")
 
     def listen_fixed(self, duration=5, language=None):
-        """
-        Listen for fixed duration
-
-        Args:
-            duration: Seconds to record
-            language: 'en', 'ur', etc. or None for auto
-
-        Returns:
-            Transcribed text or None
-        """
-        # Record
+        """Listen for fixed duration"""
         filepath = self.recorder.record_fixed(duration=duration)
         if not filepath:
             return None
-
-        # Transcribe
-        text = self._transcribe_and_cleanup(filepath, language)
-        return text
+        return self._transcribe_and_cleanup(filepath, language)
 
     def listen_until_enter(self, language=None):
-        """
-        Listen until user presses Enter
-
-        Args:
-            language: Language code or None
-
-        Returns:
-            Transcribed text or None
-        """
+        """Listen until Enter"""
         filepath = self.recorder.record_until_enter()
         if not filepath:
             return None
-
-        text = self._transcribe_and_cleanup(filepath, language)
-        return text
+        return self._transcribe_and_cleanup(filepath, language)
 
     def listen_auto(self, max_duration=30, silence_seconds=2.0, language=None):
-        """
-        Listen and auto-stop on silence
-
-        Args:
-            max_duration: Max recording time
-            silence_seconds: Silence before auto-stop
-            language: Language code or None
-
-        Returns:
-            Transcribed text or None
-        """
+        """Listen with auto-stop on silence"""
         filepath = self.recorder.record_with_silence_detection(
             max_duration=max_duration,
             silence_threshold=0.01,
@@ -92,21 +48,16 @@ class VoiceInput:
         )
         if not filepath:
             return None
-
-        text = self._transcribe_and_cleanup(filepath, language)
-        return text
+        return self._transcribe_and_cleanup(filepath, language)
 
     def listen(self, mode="fixed", duration=5, language=None):
         """
-        Universal listen method
+        Universal listen
 
         Args:
             mode: 'fixed', 'enter', 'auto'
-            duration: For fixed mode
-            language: Language code or None
-
-        Returns:
-            Transcribed text or None
+            duration: Seconds for fixed mode
+            language: 'en' for English (better accuracy!)
         """
         if mode == "fixed":
             return self.listen_fixed(duration=duration, language=language)
@@ -115,30 +66,18 @@ class VoiceInput:
         elif mode == "auto":
             return self.listen_auto(language=language)
         else:
-            print(f"   ❌ Unknown mode: {mode}")
             return None
 
     def _transcribe_and_cleanup(self, filepath, language=None):
-        """
-        Transcribe audio file and cleanup
-
-        Args:
-            filepath: Path to audio file
-            language: Language code
-
-        Returns:
-            Transcribed text or None
-        """
+        """Transcribe and cleanup"""
         if not filepath or not os.path.exists(filepath):
             return None
 
         self.last_audio_path = filepath
 
-        # Transcribe
         result = self.transcriber.transcribe(filepath, language=language)
         self.last_transcription = result
 
-        # Cleanup audio file
         try:
             os.remove(filepath)
         except Exception:
@@ -156,17 +95,13 @@ class VoiceInput:
         return None
 
     def test_mic(self):
-        """Test microphone"""
         return self.recorder.test_microphone()
 
     def list_mics(self):
-        """List microphones"""
         return self.recorder.list_microphones()
 
     def is_available(self):
-        """Check if voice input is ready"""
         return self.transcriber.is_available()
 
     def get_last_result(self):
-        """Get last transcription result"""
         return self.last_transcription

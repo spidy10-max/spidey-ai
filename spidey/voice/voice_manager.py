@@ -1,6 +1,6 @@
 """
-Spidey AI — Voice Manager (Jarvis Mode!)
-Continuous voice conversation like Tony Stark's Jarvis
+Spidey AI — Voice Manager (Spidey Beta Mode!)
+Simple & Reliable: Speak FULL → Listen → Repeat
 """
 from spidey.voice.voice_input import VoiceInput
 from spidey.voice.voice_output import VoiceOutput
@@ -9,16 +9,21 @@ import time
 
 
 class VoiceManager:
-    """Jarvis-like voice system"""
+    """Simple reliable voice system"""
 
-    def __init__(self, whisper_model="base", tts_engine="edge"):
+    def __init__(self, whisper_model="small", tts_engine="edge"):
+        """
+        whisper_model = "small" for better accuracy!
+        (base = fast but less accurate)
+        (small = slower but MUCH more accurate)
+        """
         self.voice_enabled = False
         self.speak_enabled = False
         self.listen_mode = "fixed"
         self.listen_duration = 5
-        self.jarvis_mode = False
+        self.spidey_beta = False
 
-        # Voice Input
+        # Voice Input (small model for accuracy!)
         self.voice_input = None
         try:
             self.voice_input = VoiceInput(whisper_model=whisper_model)
@@ -28,7 +33,7 @@ class VoiceManager:
             log_error(str(e), "VoiceManager - input")
             self.voice_input = None
 
-        # Voice Output (default = edge + Jenny)
+        # Voice Output
         self.voice_output = None
         try:
             self.voice_output = VoiceOutput(engine=tts_engine)
@@ -40,8 +45,8 @@ class VoiceManager:
 
         app_logger.info("VoiceManager initialized")
 
-    def listen(self, mode=None, duration=None):
-        """Listen for voice input"""
+    def listen(self, mode=None, duration=None, language="en"):
+        """Listen with retry — language set for better accuracy"""
         if not self.voice_input or not self.voice_input.is_available():
             print("   ❌ Voice input not available!")
             return None
@@ -49,127 +54,133 @@ class VoiceManager:
         use_mode = mode or self.listen_mode
         use_duration = duration or self.listen_duration
 
-        # Try up to 2 times if failed
         for attempt in range(2):
-            text = self.voice_input.listen(mode=use_mode, duration=use_duration)
+            text = self.voice_input.listen(
+                mode=use_mode,
+                duration=use_duration,
+                language=language
+            )
             if text and len(text.strip()) > 1:
-                return text
+                garbage = ["you", "the", "a", "an", "um", "uh", "hmm",
+                           "thank you", "thanks", "bye"]
+                if text.strip().lower() not in garbage:
+                    return text
+
             if attempt == 0:
                 print("   🔄 Didn't catch that. Try again...")
                 time.sleep(0.5)
 
-        print("   ❌ Could not understand. Please try again.")
+        print("   ❌ Could not understand. Speak clearly!")
         return None
 
     def speak(self, text):
-        """Speak — ALWAYS tries, with retry"""
+        """Speak FULL response"""
         if not text or not text.strip():
             return False
-
         if not self.voice_output:
             return False
 
-        # Try to speak, retry once if failed
         for attempt in range(2):
             try:
-                result = self.voice_output.speak(text)
-                if result:
+                if self.voice_output.speak(text):
                     return True
             except Exception as e:
-                log_error(str(e), f"VoiceManager.speak attempt {attempt+1}")
-
-            if attempt == 0:
-                time.sleep(0.5)
-
+                log_error(str(e), f"speak attempt {attempt+1}")
+            time.sleep(0.3)
         return False
 
     def voice_chat(self, brain, mode=None, duration=None):
-        """
-        Voice conversation turn:
-        Listen → AI → Speak (Jarvis style)
-        """
-        # Listen
+        """Voice conversation: Listen → AI → Speak"""
         user_text = self.listen(mode=mode, duration=duration)
         if not user_text:
             return None, None
 
-        # Send to AI
         print()
         print("🕷️ Spidey: ", end="", flush=True)
         ai_response = brain.chat(user_text)
         print(ai_response)
         print()
 
-        # ALWAYS speak response
         if self.speak_enabled and ai_response:
             self.speak(ai_response)
 
         return user_text, ai_response
 
-    def jarvis_loop(self, brain):
+    def spidey_beta_loop(self, brain):
         """
-        🤖 JARVIS MODE — Continuous voice conversation!
+        🕷️ SPIDEY BETA MODE
 
-        Like Tony Stark's Jarvis:
-        - Continuously listens
-        - Responds with voice
-        - Never stops until you say "stop" or "exit"
+        Simple & Reliable Flow:
+        1. Beep sound → You speak
+        2. Spidey listens (7 seconds)
+        3. Transcribes your speech
+        4. Sends to AI
+        5. Speaks FULL response
+        6. Response done → Listens again
+        7. Say "stop/exit/quit" to end
+
+        No complex interrupts — just ACCURATE & RELIABLE!
         """
-        self.jarvis_mode = True
+        self.spidey_beta = True
         self.speak_enabled = True
 
         print()
         print("=" * 55)
-        print("   🤖 JARVIS MODE ACTIVATED!")
+        print("   🕷️ SPIDEY BETA MODE ACTIVATED!")
         print("=" * 55)
-        print("   🎤 I'm listening continuously...")
-        print("   🗣️ I'll speak all responses!")
+        print("   🎤 I'll listen after every response!")
+        print("   🗣️ I'll speak all my responses!")
+        print("   ⏱️ You have 7 seconds to speak each time")
         print("   ❌ Say 'stop', 'exit', or 'quit' to end")
         print("=" * 55)
         print()
 
-        self.speak("Jarvis mode activated! I'm listening. Talk to me anytime!")
+        self.speak("Spidey Beta mode activated! Go ahead, I'm listening!")
 
-        while self.jarvis_mode:
+        while self.spidey_beta:
             try:
-                print("\n   🎤 Listening...", flush=True)
+                print("\n   🎤 Your turn — speak now! (7 seconds)", flush=True)
 
-                # Listen with auto-stop on silence
-                user_text = self.listen(mode="auto", duration=None)
+                # Listen for 7 seconds with English language set
+                user_text = self.listen(mode="fixed", duration=7, language="en")
 
                 if not user_text:
+                    self.speak("I didn't hear anything. Try again!")
                     continue
 
-                # Check for stop commands
-                lower_text = user_text.lower().strip()
-                if any(word in lower_text for word in ["stop", "exit", "quit", "bye", "band karo", "ruko"]):
-                    self.speak("Jarvis mode deactivated. Going back to text mode!")
-                    print("\n   ❌ Jarvis mode OFF\n")
-                    self.jarvis_mode = False
+                # Check stop commands
+                lower = user_text.lower().strip()
+                stop_words = ["stop", "exit", "quit", "bye", "close",
+                              "band karo", "ruko", "bas", "end"]
+                if any(w in lower for w in stop_words):
+                    self.speak("Spidey Beta mode deactivated! Back to text mode.")
+                    print("\n   ❌ Spidey Beta OFF\n")
+                    self.spidey_beta = False
                     break
 
-                # Send to AI
+                # Show what user said
                 print(f"\n   👤 You: {user_text}")
+
+                # Get AI response
                 print()
                 print("   🕷️ Spidey: ", end="", flush=True)
                 ai_response = brain.chat(user_text)
                 print(ai_response)
                 print()
 
-                # Speak response
+                # Speak FULL response
                 self.speak(ai_response)
 
-                # Small pause before next listen
+                # Done speaking → small pause → listen again
                 time.sleep(0.5)
 
             except KeyboardInterrupt:
-                self.speak("Jarvis mode deactivated!")
-                print("\n   ❌ Jarvis mode OFF\n")
-                self.jarvis_mode = False
+                self.speak("Spidey Beta off!")
+                print("\n   ❌ Spidey Beta OFF\n")
+                self.spidey_beta = False
                 break
-
             except Exception as e:
-                log_error(str(e), "VoiceManager.jarvis_loop")
+                log_error(str(e), "spidey_beta_loop")
                 print(f"   ❌ Error: {e}")
                 time.sleep(1)
 
@@ -180,7 +191,6 @@ class VoiceManager:
 
     def toggle_voice(self):
         self.voice_enabled = not self.voice_enabled
-        log_event("Voice mode", "ON" if self.voice_enabled else "OFF")
         return self.voice_enabled
 
     def set_listen_mode(self, mode):
@@ -216,14 +226,12 @@ class VoiceManager:
     def test_mic(self):
         if self.voice_input:
             return self.voice_input.test_mic()
-        print("   ❌ Voice input not available!")
         return False
 
     def test_speak(self, text="Hello! I am Spidey AI, your personal assistant!"):
         if self.voice_output and self.voice_output.is_available():
             self.voice_output.speak(text)
             return True
-        print("   ❌ Voice output not available!")
         return False
 
     def get_voices(self):
@@ -247,7 +255,7 @@ class VoiceManager:
             "voice_output": self.voice_output is not None and self.voice_output.is_available(),
             "voice_enabled": self.voice_enabled,
             "speak_enabled": self.speak_enabled,
-            "jarvis_mode": self.jarvis_mode,
+            "spidey_beta": self.spidey_beta,
             "listen_mode": self.listen_mode,
             "listen_duration": self.listen_duration,
             "tts_engine": self.voice_output.get_engine_name() if self.voice_output else "none",
