@@ -1,7 +1,6 @@
 """
-Spidey AI — Voice Manager (Simple & Reliable!)
-No wake word — just Listen → AI → Speak → Repeat!
-All control through voice commands!
+Spidey AI — Voice Manager (Auto-Stop on Silence!)
+Records until you STOP talking — no fixed time limit!
 """
 from spidey.voice.voice_input import VoiceInput
 from spidey.voice.voice_output import VoiceOutput
@@ -10,12 +9,12 @@ import time
 
 
 class VoiceManager:
-    """Simple voice system — everything by voice!"""
+    """Voice system — records until silence detected!"""
 
     def __init__(self, whisper_model="small", tts_engine="edge"):
         self.voice_enabled = False
         self.speak_enabled = False
-        self.listen_mode = "fixed"
+        self.listen_mode = "auto"
         self.listen_duration = 5
         self.spidey_beta = False
 
@@ -29,7 +28,7 @@ class VoiceManager:
             log_error(str(e), "VoiceManager - input")
             self.voice_input = None
 
-        # Voice Output (Jenny English default)
+        # Voice Output
         self.voice_output = None
         try:
             self.voice_output = VoiceOutput(engine=tts_engine)
@@ -66,6 +65,34 @@ class VoiceManager:
         print("   ❌ Could not understand. Speak clearly!")
         return None
 
+    def listen_until_done(self, language="en"):
+        """
+        Listen until you STOP talking!
+        Uses silence detection — no time limit!
+        Max 60 seconds safety limit.
+        """
+        if not self.voice_input or not self.voice_input.is_available():
+            print("   ❌ Voice not available!")
+            return None
+
+        for attempt in range(2):
+            text = self.voice_input.listen(
+                mode="auto",
+                duration=60,
+                language=language
+            )
+            if text and len(text.strip()) > 1:
+                garbage = ["you", "the", "a", "an", "um", "uh", "hmm",
+                           "thank you", "thanks"]
+                if text.strip().lower() not in garbage:
+                    return text
+            if attempt == 0:
+                print("   🔄 Didn't catch that. Try again...")
+                time.sleep(0.5)
+
+        print("   ❌ Could not understand. Speak clearly!")
+        return None
+
     def speak(self, text):
         """Speak FULL response"""
         if not text or not text.strip():
@@ -84,7 +111,7 @@ class VoiceManager:
 
     def voice_chat(self, brain, mode=None, duration=None):
         """Single voice turn"""
-        user_text = self.listen(mode=mode, duration=duration)
+        user_text = self.listen_until_done()
         if not user_text:
             return None, None
 
@@ -100,49 +127,46 @@ class VoiceManager:
         return user_text, ai_response
 
     def _handle_voice_command(self, text):
-        """
-        Check if user gave a voice command
-        Returns: (is_command, should_continue)
-        """
+        """Check voice commands"""
         lower = text.lower().strip()
 
-        # Stop commands
+        # Stop
         stop_words = ["stop", "exit", "quit", "bye", "close",
                        "band karo", "ruko", "bas", "end", "band"]
         if any(w in lower for w in stop_words):
             return True, False
 
-        # Language commands
-        if "urdu" in lower or "speak urdu" in lower or "urdu mein" in lower:
+        # Language
+        if "urdu" in lower or "speak urdu" in lower:
             self.set_language("ur")
             self.speak("Urdu voice activated!")
             print("   ✅ Urdu voice ON!")
             return True, True
 
-        if "english" in lower or "speak english" in lower or "english mein" in lower:
+        if "english" in lower or "speak english" in lower:
             self.set_language("en")
             self.speak("English voice activated!")
             print("   ✅ English voice ON!")
             return True, True
 
-        if "hindi" in lower or "speak hindi" in lower or "hindi mein" in lower:
+        if "hindi" in lower or "speak hindi" in lower:
             self.set_language("hi")
             self.speak("Hindi voice activated!")
             print("   ✅ Hindi voice ON!")
             return True, True
 
-        # Volume commands
-        if "speak faster" in lower or "fast" in lower or "tez bolo" in lower:
+        # Speed
+        if "speak faster" in lower or "tez bolo" in lower:
             self.set_speech_rate(220)
             self.speak("Speaking faster now!")
             return True, True
 
-        if "speak slower" in lower or "slow" in lower or "dhire bolo" in lower:
+        if "speak slower" in lower or "dhire bolo" in lower:
             self.set_speech_rate(130)
             self.speak("Speaking slower now!")
             return True, True
 
-        if "normal speed" in lower or "normal" in lower:
+        if "normal speed" in lower:
             self.set_speech_rate(175)
             self.speak("Normal speed!")
             return True, True
@@ -153,23 +177,20 @@ class VoiceManager:
         """
         🕷️ SPIDEY BETA MODE
 
-        Simple Flow:
+        Flow:
         1. Spidey says "Listening!"
-        2. Records 7 seconds
-        3. Transcribes your speech
-        4. Checks for voice commands (language/stop/speed)
-        5. If normal message → AI responds → speaks
-        6. Repeats!
+        2. Records until you STOP talking (silence detected!)
+        3. No time limit — talk as long as you want!
+        4. When you stop → transcribes → AI responds → speaks
+        5. Then listens again!
 
-        Voice Commands (just SAY these):
-        - "speak urdu" → switches to Urdu
-        - "speak english" → switches to English
-        - "speak hindi" → switches to Hindi
-        - "speak faster" → faster speech
-        - "speak slower" → slower speech
-        - "stop" → exits Spidey Beta
+        Voice Commands (just SAY):
+        - "speak urdu" → Urdu voice
+        - "speak english" → English voice
+        - "speak faster/slower" → Speed change
+        - "stop" → Exit
 
-        No typing needed — ALL by voice!
+        ALL by voice — no typing!
         """
         self.spidey_beta = True
         self.speak_enabled = True
@@ -178,33 +199,30 @@ class VoiceManager:
         print("=" * 55)
         print("   🕷️ SPIDEY BETA MODE!")
         print("=" * 55)
-        print("   🎤 I'll keep listening to you!")
-        print("   🗣️ I'll speak all responses!")
-        print("   ⏱️ Speak within 7 seconds each time")
+        print("   🎤 Talk as long as you want!")
+        print("   🔇 I'll wait until you finish speaking!")
+        print("   🗣️ Then I'll respond and speak!")
         print()
-        print("   🎯 VOICE COMMANDS (just say these!):")
+        print("   🎯 VOICE COMMANDS:")
         print("   • 'speak urdu'    → Urdu voice")
         print("   • 'speak english' → English voice")
-        print("   • 'speak hindi'   → Hindi voice")
         print("   • 'speak faster'  → Fast speech")
         print("   • 'speak slower'  → Slow speech")
         print("   • 'stop'          → Exit")
         print("=" * 55)
         print()
 
-        self.speak("Spidey Beta mode on! I'm listening. Go ahead!")
+        self.speak("Spidey Beta mode on! Talk as long as you want. I'll wait until you finish!")
 
         round_num = 0
 
         while self.spidey_beta:
             try:
                 round_num += 1
-                print(f"\n   🎤 Round {round_num} — Speak now! (7 sec)", flush=True)
+                print(f"\n   🎤 Round {round_num} — Speak now! (I'll wait until you finish)", flush=True)
 
-                # Listen
-                user_text = self.listen(
-                    mode="fixed", duration=7, language="en"
-                )
+                # Listen until silence — NO TIME LIMIT!
+                user_text = self.listen_until_done(language="en")
 
                 # Nothing heard
                 if not user_text:
