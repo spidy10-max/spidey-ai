@@ -1,5 +1,5 @@
 """
-Spidey AI — Tool Connector (Complete with Internet Tools!)
+Spidey AI — Tool Connector (Complete + YouTube + Offline handling!)
 """
 import re
 import os
@@ -9,11 +9,12 @@ from spidey.tools.system_info import SystemInfo
 from spidey.tools.internet.weather import WeatherTool
 from spidey.tools.internet.search import SearchTool
 from spidey.tools.internet.wiki import WikiTool
+from spidey.tools.internet.youtube import YouTubeTool
 from spidey.logger import app_logger, log_event, log_error
 
 
 class ToolConnector:
-    """AI to all tools bridge"""
+    """AI to all tools bridge — with offline handling!"""
 
     def __init__(self):
         self.pc = ComputerControl()
@@ -22,8 +23,21 @@ class ToolConnector:
         self.weather = WeatherTool()
         self.search = SearchTool()
         self.wiki = WikiTool()
+        self.youtube = YouTubeTool()
         self.enabled = True
-        app_logger.info("ToolConnector initialized (full + internet)")
+        self.internet_available = True
+        app_logger.info("ToolConnector initialized (full + youtube)")
+
+    def check_internet(self):
+        """Quick internet check"""
+        try:
+            import requests
+            requests.get("https://www.google.com", timeout=3)
+            self.internet_available = True
+            return True
+        except Exception:
+            self.internet_available = False
+            return False
 
     def process_command(self, text):
         """Check text for commands"""
@@ -33,10 +47,15 @@ class ToolConnector:
         lower = text.lower().strip()
 
         result = None
+
+        # Internet tools first (most common)
         result = result or self._detect_weather(lower)
+        result = result or self._detect_youtube(lower)
         result = result or self._detect_web_search(lower)
         result = result or self._detect_news(lower)
         result = result or self._detect_wikipedia(lower)
+
+        # Computer tools
         result = result or self._detect_open_app(lower)
         result = result or self._detect_close_app(lower)
         result = result or self._detect_screenshot(lower)
@@ -61,7 +80,7 @@ class ToolConnector:
     # ============================================================
 
     def _detect_weather(self, text):
-        """weather in kotaddu, mausam, weather report"""
+        """weather in karachi, mausam, temperature"""
         patterns = [
             r"weather\s+(?:in\s+)?(.+?)$",
             r"mausam\s+(.+?)$",
@@ -79,24 +98,52 @@ class ToolConnector:
                 if len(city) > 1:
                     return self.weather.get_weather(city)
 
-        # Just "weather" → use default city
         if text.strip() in ["weather", "mausam", "weather today", "aaj ka mausam"]:
-            return self.weather.get_weather("Kotaddu")
+            return self.weather.get_weather("Kot Addu")
 
-        # Forecast
         forecast_match = re.search(r"(?:forecast|prediction)\s+(?:for\s+)?(.+?)$", text)
         if forecast_match:
-            city = forecast_match.group(1).strip()
-            return self.weather.get_forecast(city)
+            return self.weather.get_forecast(forecast_match.group(1).strip())
+
+        return None
+
+    def _detect_youtube(self, text):
+        """youtube python, play music, yt search"""
+        # Play on YouTube
+        play_patterns = [
+            r"(?:play|chalao)\s+(.+?)\s+(?:on\s+)?youtube$",
+            r"youtube\s+(?:pe|par|pr)\s+(.+?)\s+(?:chalao|play)$",
+            r"play\s+(.+?)$",
+        ]
+
+        for pattern in play_patterns:
+            match = re.search(pattern, text)
+            if match:
+                query = match.group(1).strip()
+                if len(query) > 1:
+                    return self.youtube.play_video(query)
+
+        # Search YouTube
+        search_patterns = [
+            r"youtube\s+(?:search\s+)?(.+?)$",
+            r"yt\s+(.+?)$",
+            r"search\s+youtube\s+(?:for\s+)?(.+?)$",
+            r"(?:find|show)\s+(?:me\s+)?videos?\s+(?:about|of|on)\s+(.+?)$",
+        ]
+
+        for pattern in search_patterns:
+            match = re.search(pattern, text)
+            if match:
+                query = match.group(1).strip()
+                if len(query) > 1:
+                    return self.youtube.search(query)
 
         return None
 
     def _detect_web_search(self, text):
-        """search for python, google something"""
+        """search for python, web search"""
         patterns = [
             r"(?:web\s+)?search\s+(?:for\s+)?(.+?)$",
-            r"google\s+(.+?)$",
-            r"search\s+(?:the\s+)?(?:web|internet)\s+(?:for\s+)?(.+?)$",
             r"look\s+up\s+(.+?)$",
         ]
 
@@ -105,15 +152,12 @@ class ToolConnector:
             if match:
                 query = match.group(1).strip()
                 if len(query) > 1:
-                    # Check if it's a google search (open browser) vs web search (get results)
-                    if "google" in text and "search" not in text:
-                        continue  # Let browser handler take it
                     return self.search.search(query)
 
         return None
 
     def _detect_news(self, text):
-        """news about pakistan, latest news, headlines"""
+        """news about pakistan, latest news"""
         patterns = [
             r"news\s+(?:about\s+)?(.+?)$",
             r"(?:latest|today'?s?)\s+news\s*(?:about\s+)?(.+?)?$",
@@ -125,18 +169,16 @@ class ToolConnector:
             match = re.search(pattern, text)
             if match:
                 query = match.group(1).strip() if match.group(1) else "world"
-                query = query.replace("please", "").strip()
-                if not query:
-                    query = "world"
+                query = query.replace("please", "").strip() or "world"
                 return self.search.search_news(query)
 
-        if text.strip() in ["news", "headlines", "latest news", "khabaren", "today news"]:
+        if text.strip() in ["news", "headlines", "latest news", "khabaren"]:
             return self.search.search_news("world")
 
         return None
 
     def _detect_wikipedia(self, text):
-        """wikipedia python, wiki about AI, define machine learning"""
+        """wikipedia python, what is AI, define ML"""
         patterns = [
             r"(?:wikipedia|wiki)\s+(?:about\s+)?(.+?)$",
             r"(?:define|definition\s+of)\s+(.+?)$",
@@ -146,23 +188,21 @@ class ToolConnector:
             r"(.+?)\s+(?:kya\s+hai|kya\s+he)$",
         ]
 
-        # Only use wikipedia for knowledge queries, not commands
         skip_words = ["weather", "time", "battery", "wifi", "screenshot",
-                       "open", "close", "search", "find", "news", "your", "my"]
+                       "open", "close", "search", "find", "news", "your", "my",
+                       "youtube", "play", "video", "recording"]
 
         for pattern in patterns:
             match = re.search(pattern, text)
             if match:
-                topic = match.group(1).strip()
-                topic = topic.replace("please", "").replace("?", "").strip()
-
+                topic = match.group(1).strip().replace("please", "").replace("?", "").strip()
                 if len(topic) > 1 and not any(sw in topic.lower() for sw in skip_words):
                     return self.wiki.get_summary(topic)
 
         return None
 
     # ============================================================
-    #  COMPUTER TOOLS (same as before)
+    #  COMPUTER TOOLS
     # ============================================================
 
     def _detect_open_app(self, text):
@@ -210,7 +250,7 @@ class ToolConnector:
             match = re.search(pattern, text)
             if match:
                 app = match.group(1).strip().replace("please", "").strip()
-                if len(app) > 1 and app not in ["the", "a", "this", "that"]:
+                if len(app) > 1 and app not in ["the", "a", "this", "that", "window"]:
                     return self.pc.close_app(app)
         return None
 
