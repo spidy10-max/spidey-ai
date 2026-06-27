@@ -1,478 +1,640 @@
 """
-Spidey AI — Tool Connector (Complete + YouTube + Offline handling!)
+Spidey Tool Connector v2
+Smart fallback: If one tool fails, try another!
+Day 44 — Fixed
 """
+
 import re
-import os
-from spidey.tools.computer import ComputerControl
-from spidey.tools.file_manager import FileManager
-from spidey.tools.system_info import SystemInfo
-from spidey.tools.internet.weather import WeatherTool
-from spidey.tools.internet.search import SearchTool
-from spidey.tools.internet.wiki import WikiTool
-from spidey.tools.internet.youtube import YouTubeTool
-from spidey.logger import app_logger, log_event, log_error
+from spidey.logger import log_event, log_error
 
 
 class ToolConnector:
-    """AI to all tools bridge — with offline handling!"""
+    """
+    Central hub that connects all tools to SpideyBrain.
+    Now with SMART FALLBACK — if wiki fails, tries search, etc.
+    """
 
     def __init__(self):
-        self.pc = ComputerControl()
-        self.fm = FileManager()
-        self.si = SystemInfo()
-        self.weather = WeatherTool()
-        self.search = SearchTool()
-        self.wiki = WikiTool()
-        self.youtube = YouTubeTool()
         self.enabled = True
-        self.internet_available = True
-        app_logger.info("ToolConnector initialized (full + youtube)")
+        self.tools = {}
+        self._load_tools()
 
-    def check_internet(self):
-        """Quick internet check"""
+    def _load_tools(self):
+        """Load all available tools"""
+
         try:
-            import requests
-            requests.get("https://www.google.com", timeout=3)
-            self.internet_available = True
-            return True
-        except Exception:
-            self.internet_available = False
-            return False
+            from spidey.tools.weather_tool import WeatherTool
+            tool = WeatherTool()
+            self.tools["weather"] = {
+                "instance": tool,
+                "name": "Weather",
+                "description": "Get current weather and forecast",
+                "available": tool.is_available()
+            }
+            log_event("✅ Weather tool loaded")
+        except Exception as e:
+            log_error(str(e), "Loading weather tool")
 
-    def process_command(self, text):
-        """Check text for commands"""
-        if not self.enabled or not text or len(text.strip()) < 3:
+        try:
+            from spidey.tools.news_tool import NewsTool
+            tool = NewsTool()
+            self.tools["news"] = {
+                "instance": tool,
+                "name": "News",
+                "description": "Get latest news headlines",
+                "available": tool.is_available()
+            }
+            log_event("✅ News tool loaded")
+        except Exception as e:
+            log_error(str(e), "Loading news tool")
+
+        try:
+            from spidey.tools.search_tool import SearchTool
+            tool = SearchTool()
+            self.tools["search"] = {
+                "instance": tool,
+                "name": "Search",
+                "description": "Search the internet",
+                "available": tool.is_available()
+            }
+            log_event("✅ Search tool loaded")
+        except Exception as e:
+            log_error(str(e), "Loading search tool")
+
+        try:
+            from spidey.tools.wiki_tool import WikiTool
+            tool = WikiTool()
+            self.tools["wiki"] = {
+                "instance": tool,
+                "name": "Wikipedia",
+                "description": "Get information from Wikipedia",
+                "available": tool.is_available()
+            }
+            log_event("✅ Wiki tool loaded")
+        except Exception as e:
+            log_error(str(e), "Loading wiki tool")
+
+    # ========================================
+    # Intent Detection — Keywords
+    # ========================================
+
+    WEATHER_KEYWORDS = [
+        "weather", "mausam", "temperature", "temp",
+        "forecast", "rain", "barish", "sunny", "cloudy",
+        "humidity", "wind", "garmi", "sardi", "hot", "cold",
+        "sunrise", "sunset", "weather in", "ka mausam",
+        "ka weather", "how hot", "how cold", "degree"
+    ]
+
+    NEWS_KEYWORDS = [
+        "news", "headlines", "khabar", "khabrain",
+        "latest news", "top news", "breaking",
+        "aaj ki khabar", "today news", "current events",
+        "sports news", "tech news", "business news",
+        "science news", "health news", "entertainment news",
+        "pakistan news", "world news"
+    ]
+
+    WIKI_KEYWORDS = [
+        "wikipedia", "wiki",
+    ]
+
+    SEARCH_KEYWORDS = [
+        "search", "google", "find", "look up", "lookup",
+        "search for", "dhoondo", "talash", "search karo",
+        "find me", "show me results", "internet search",
+    ]
+
+    # These should go to AI brain, NOT tools
+    AI_BRAIN_KEYWORDS = [
+        "tell me about", "what is", "who is", "explain",
+        "define", "kya hai", "kaun hai", "batao",
+        "samjhao", "how to", "why", "suggest",
+        "recommend", "help me", "can you", "please",
+        "create", "write", "make", "generate",
+        "compare", "difference between",
+        "joke", "story", "poem", "hello", "hi",
+        "how are you", "good morning", "thanks",
+        "thank you", "bye", "okay", "ok",
+        "yes", "no", "haan", "nahi"
+    ]
+
+    # ========================================
+    # Main Process Command
+    # ========================================
+
+    def process_command(self, message):
+        """
+        Detect intent from user message and call appropriate tool.
+        With SMART FALLBACK — if tool fails, tries alternatives.
+        """
+        if not self.enabled:
             return None
 
-        lower = text.lower().strip()
+        msg = message.lower().strip()
 
-        result = None
+        if len(msg) < 3:
+            return None
 
-        # Internet tools first (most common)
-        result = result or self._detect_weather(lower)
-        result = result or self._detect_youtube(lower)
-        result = result or self._detect_web_search(lower)
-        result = result or self._detect_news(lower)
-        result = result or self._detect_wikipedia(lower)
+        # Step 1: Check direct slash commands first
+        direct_result = self._check_direct_commands(msg, message)
+        if direct_result:
+            return direct_result
 
-        # Computer tools
-        result = result or self._detect_open_app(lower)
-        result = result or self._detect_close_app(lower)
-        result = result or self._detect_screenshot(lower)
-        result = result or self._detect_recording(lower)
-        result = result or self._detect_open_url(lower, text)
-        result = result or self._detect_browser(lower)
-        result = result or self._detect_open_folder(lower)
-        result = result or self._detect_file_search(lower)
-        result = result or self._detect_file_operations(lower, text)
-        result = result or self._detect_disk_info(lower)
-        result = result or self._detect_type_text(lower, text)
-        result = result or self._detect_keyboard(lower)
-        result = result or self._detect_window(lower)
-        result = result or self._detect_scroll(lower)
-        result = result or self._detect_system(lower)
-        result = result or self._detect_system_info(lower)
+        # Step 2: Check if this should go to AI brain (not tools)
+        if self._should_use_ai_brain(msg):
+            return None  # Let AI brain handle it
 
-        return result
+        # Step 3: Auto-detect intent
+        intent = self._detect_intent(msg)
 
-    # ============================================================
-    #  INTERNET TOOLS
-    # ============================================================
+        if intent == "weather":
+            return self._handle_weather(msg, message)
+        elif intent == "news":
+            return self._handle_news(msg, message)
+        elif intent == "search":
+            return self._handle_search(msg, message)
+        elif intent == "wiki":
+            result = self._handle_wiki(msg, message)
+            # SMART FALLBACK: If wiki fails, try search
+            if result and ("not found" in result.lower() or "⚠️" in result[:5]):
+                topic = self._extract_topic(msg)
+                if topic:
+                    search_result = self._do_search(topic)
+                    if search_result and "⚠️" not in search_result[:5]:
+                        return search_result
+            return result
 
-    def _detect_weather(self, text):
-        """weather in karachi, mausam, temperature"""
-        patterns = [
-            r"weather\s+(?:in\s+)?(.+?)$",
-            r"mausam\s+(.+?)$",
-            r"temperature\s+(?:in\s+)?(.+?)$",
-            r"(.+?)\s+(?:ka\s+)?(?:weather|mausam)$",
-            r"how(?:'s|\s+is)\s+(?:the\s+)?weather\s+(?:in\s+)?(.+?)$",
-            r"what(?:'s|\s+is)\s+(?:the\s+)?weather\s+(?:in\s+)?(.+?)$",
+        return None  # No tool matched — AI brain handles it
+
+    # ========================================
+    # Smart AI Brain Check
+    # ========================================
+
+    def _should_use_ai_brain(self, msg):
+        """
+        Check if this message should go to AI brain instead of tools.
+        Returns True if AI brain should handle it.
+        """
+        # If it starts with a direct command, don't skip
+        if msg.startswith("/"):
+            return False
+
+        # Check for weather — always use tool
+        for kw in self.WEATHER_KEYWORDS:
+            if kw in msg:
+                return False
+
+        # Check for explicit tool keywords
+        for kw in ["search", "google", "dhoondo", "news", "headlines", "wiki", "wikipedia"]:
+            if kw in msg:
+                return False
+
+        # Conversational / general questions → AI brain
+        conversational_patterns = [
+            "tell me about", "what is", "who is",
+            "explain", "define", "how to",
+            "can you", "please", "help me",
+            "kya hai", "kaun hai", "batao",
+            "samjhao", "suggest", "recommend",
+            "create", "write", "make", "generate",
+            "compare", "difference",
+            "life in", "culture of", "history of",
+            "my ", "i am", "i want", "i need",
         ]
 
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                city = match.group(1).strip()
-                city = city.replace("please", "").replace("today", "").replace("now", "").strip()
-                if len(city) > 1:
-                    return self.weather.get_weather(city)
+        for pattern in conversational_patterns:
+            if pattern in msg:
+                # BUT if it also has a strong tool keyword, use tool
+                has_tool_keyword = False
+                for kw in ["weather", "news", "search", "wiki", "wikipedia"]:
+                    if kw in msg:
+                        has_tool_keyword = True
+                        break
 
-        if text.strip() in ["weather", "mausam", "weather today", "aaj ka mausam"]:
-            return self.weather.get_weather("Kot Addu")
+                if not has_tool_keyword:
+                    return True  # Let AI brain handle
 
-        forecast_match = re.search(r"(?:forecast|prediction)\s+(?:for\s+)?(.+?)$", text)
-        if forecast_match:
-            return self.weather.get_forecast(forecast_match.group(1).strip())
+        # Short messages → AI brain
+        if len(msg.split()) <= 3:
+            # Unless it's a clear tool command
+            for kw in self.WEATHER_KEYWORDS + ["news", "search", "wiki"]:
+                if kw in msg:
+                    return False
+            return True
+
+        # Greetings, emotions → AI brain
+        greetings = [
+            "hello", "hi", "hey", "hlo", "hola",
+            "good morning", "good night", "bye",
+            "thanks", "thank", "ok", "okay",
+            "yes", "no", "haan", "nahi",
+            "how are you", "whats up", "kya hal",
+            "sad", "happy", "worried", "angry",
+            "joke", "story", "poem", "fun"
+        ]
+
+        for g in greetings:
+            if g in msg:
+                return True
+
+        return False
+
+    # ========================================
+    # Direct Commands
+    # ========================================
+
+    def _check_direct_commands(self, msg, original):
+        """Check for explicit slash commands"""
+
+        if msg.startswith("/weather"):
+            city = msg.replace("/weather", "").strip()
+            if not city:
+                return "⚠️ City batao! Example: /weather Karachi"
+            return self._get_weather(city)
+
+        if msg.startswith("/forecast"):
+            city = msg.replace("/forecast", "").strip()
+            if not city:
+                return "⚠️ City batao! Example: /forecast Lahore"
+            return self._get_forecast(city)
+
+        if msg.startswith("/news"):
+            topic = msg.replace("/news", "").strip()
+            return self._get_news(topic)
+
+        if msg.startswith("/search"):
+            query = msg.replace("/search", "").strip()
+            if not query:
+                return "⚠️ Kya search karna hai? Example: /search Python tutorial"
+            return self._do_search(query)
+
+        if msg.startswith("/wiki"):
+            topic = msg.replace("/wiki", "").strip()
+            if not topic:
+                return "⚠️ Topic batao! Example: /wiki Python"
+            result = self._get_wiki(topic)
+            # Fallback: If wiki fails, try search
+            if result and ("not found" in result.lower()):
+                search_result = self._do_search(topic)
+                if search_result and "⚠️" not in search_result[:5]:
+                    return f"{result}\n\n🔍 Search results instead:\n{search_result}"
+            return result
+
+        if msg.startswith("/fact"):
+            topic = msg.replace("/fact", "").strip()
+            if not topic:
+                return "⚠️ Topic batao! Example: /fact Earth"
+            return self._get_fact(topic)
+
+        if msg in ["/tools", "/tool", "/help tools"]:
+            return self._list_tools()
 
         return None
 
-    def _detect_youtube(self, text):
-        """youtube python, play music, yt search"""
-        # Play on YouTube
-        play_patterns = [
-            r"(?:play|chalao)\s+(.+?)\s+(?:on\s+)?youtube$",
-            r"youtube\s+(?:pe|par|pr)\s+(.+?)\s+(?:chalao|play)$",
-            r"play\s+(.+?)$",
-        ]
+    # ========================================
+    # Intent Detection
+    # ========================================
 
-        for pattern in play_patterns:
-            match = re.search(pattern, text)
-            if match:
-                query = match.group(1).strip()
-                if len(query) > 1:
-                    return self.youtube.play_video(query)
+    def _detect_intent(self, msg):
+        """Detect which tool to use based on message content"""
 
-        # Search YouTube
-        search_patterns = [
-            r"youtube\s+(?:search\s+)?(.+?)$",
-            r"yt\s+(.+?)$",
-            r"search\s+youtube\s+(?:for\s+)?(.+?)$",
-            r"(?:find|show)\s+(?:me\s+)?videos?\s+(?:about|of|on)\s+(.+?)$",
-        ]
-
-        for pattern in search_patterns:
-            match = re.search(pattern, text)
-            if match:
-                query = match.group(1).strip()
-                if len(query) > 1:
-                    return self.youtube.search(query)
-
-        return None
-
-    def _detect_web_search(self, text):
-        """search for python, web search"""
-        patterns = [
-            r"(?:web\s+)?search\s+(?:for\s+)?(.+?)$",
-            r"look\s+up\s+(.+?)$",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                query = match.group(1).strip()
-                if len(query) > 1:
-                    return self.search.search(query)
-
-        return None
-
-    def _detect_news(self, text):
-        """news about pakistan, latest news"""
-        patterns = [
-            r"news\s+(?:about\s+)?(.+?)$",
-            r"(?:latest|today'?s?)\s+news\s*(?:about\s+)?(.+?)?$",
-            r"headlines\s*(?:about\s+)?(.+?)?$",
-            r"khabar(?:en)?\s+(.+?)?$",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                query = match.group(1).strip() if match.group(1) else "world"
-                query = query.replace("please", "").strip() or "world"
-                return self.search.search_news(query)
-
-        if text.strip() in ["news", "headlines", "latest news", "khabaren"]:
-            return self.search.search_news("world")
-
-        return None
-
-    def _detect_wikipedia(self, text):
-        """wikipedia python, what is AI, define ML"""
-        patterns = [
-            r"(?:wikipedia|wiki)\s+(?:about\s+)?(.+?)$",
-            r"(?:define|definition\s+of)\s+(.+?)$",
-            r"what\s+is\s+(.+?)(?:\s+in\s+detail)?$",
-            r"tell\s+me\s+about\s+(.+?)$",
-            r"explain\s+(.+?)$",
-            r"(.+?)\s+(?:kya\s+hai|kya\s+he)$",
-        ]
-
-        skip_words = ["weather", "time", "battery", "wifi", "screenshot",
-                       "open", "close", "search", "find", "news", "your", "my",
-                       "youtube", "play", "video", "recording"]
-
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                topic = match.group(1).strip().replace("please", "").replace("?", "").strip()
-                if len(topic) > 1 and not any(sw in topic.lower() for sw in skip_words):
-                    return self.wiki.get_summary(topic)
-
-        return None
-
-    # ============================================================
-    #  COMPUTER TOOLS
-    # ============================================================
-
-    def _detect_open_app(self, text):
-        apps = [
-            "chrome", "google chrome", "browser",
-            "firefox", "edge", "brave",
-            "notepad", "calculator", "calc", "paint",
-            "cmd", "command prompt", "terminal", "powershell",
-            "explorer", "file explorer", "files",
-            "settings", "task manager",
-            "vscode", "vs code", "visual studio code",
-            "word", "excel", "powerpoint", "outlook",
-            "spotify", "discord", "telegram", "whatsapp",
-            "zoom", "teams", "vlc", "obs",
-            "snipping tool", "camera", "photos", "store",
-            "control panel",
-        ]
-
-        patterns = [
-            r"(?:open|launch|start|run|chalo|kholo)\s+(.+?)(?:\s+please|\s+now|\s+karo|\s+kro)?$",
-            r"(.+?)\s+(?:open|kholo|chala|karo|kro)\s*$",
-        ]
-
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                app = match.group(1).strip().replace("please", "").replace("the", "").strip()
-                if app in apps:
-                    if app in ["chrome", "google chrome", "browser"]:
-                        return self.pc.open_chrome()
-                    return self.pc.open_app(app)
-                for known in apps:
-                    if known in app or app in known:
-                        if known in ["chrome", "google chrome", "browser"]:
-                            return self.pc.open_chrome()
-                        return self.pc.open_app(known)
-        return None
-
-    def _detect_close_app(self, text):
-        patterns = [
-            r"(?:close|kill|stop|band|quit)\s+(.+?)(?:\s+please|\s+now|\s+karo|\s+kro)?$",
-            r"(.+?)\s+(?:close|band|khatam)\s*(?:karo|kro)?$",
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, text)
-            if match:
-                app = match.group(1).strip().replace("please", "").strip()
-                if len(app) > 1 and app not in ["the", "a", "this", "that", "window"]:
-                    return self.pc.close_app(app)
-        return None
-
-    def _detect_screenshot(self, text):
-        keywords = ["take screenshot", "take a screenshot", "screenshot le",
-                     "screenshot lo", "capture screen", "ss lo", "ss le",
-                     "take ss", "screenshot karo"]
-        if text.strip() == "screenshot" or any(kw in text for kw in keywords):
-            return self.pc.take_screenshot()
-        return None
-
-    def _detect_recording(self, text):
-        if any(kw in text for kw in ["start recording", "record screen",
-                                      "screen record", "record karo", "recording shuru"]):
-            dur = re.search(r"(\d+)\s*(?:sec|second|minute|min)", text)
-            if dur:
-                d = int(dur.group(1))
-                if "min" in text:
-                    d *= 60
-                return self.pc.start_recording(duration=d)
-            return self.pc.start_recording()
-
-        if any(kw in text for kw in ["stop recording", "recording stop", "recording band"]):
-            return self.pc.stop_recording()
-
-        match = re.search(r"record\s+(?:for\s+)?(\d+)\s*(?:sec|second|minute|min)", text)
-        if match:
-            d = int(match.group(1))
-            if "min" in text:
-                d *= 60
-            return self.pc.record_for(d)
-        return None
-
-    def _detect_open_url(self, lower, original):
-        websites = {
-            "youtube": "https://www.youtube.com",
-            "google": "https://www.google.com",
-            "gmail": "https://mail.google.com",
-            "github": "https://github.com",
-            "facebook": "https://www.facebook.com",
-            "twitter": "https://twitter.com",
-            "instagram": "https://www.instagram.com",
-            "whatsapp web": "https://web.whatsapp.com",
-            "linkedin": "https://www.linkedin.com",
-            "stackoverflow": "https://stackoverflow.com",
-            "chatgpt": "https://chat.openai.com",
-            "claude": "https://claude.ai",
-            "reddit": "https://www.reddit.com",
-            "amazon": "https://www.amazon.com",
-            "netflix": "https://www.netflix.com",
-            "wikipedia": "https://www.wikipedia.org",
-            "daraz": "https://www.daraz.pk",
+        scores = {
+            "weather": 0,
+            "news": 0,
+            "wiki": 0,
+            "search": 0
         }
 
-        url_match = re.search(r'(?:open|go to|visit)\s+(https?://\S+)', lower)
-        if url_match:
-            return self.pc.open_chrome(url_match.group(1))
+        for kw in self.WEATHER_KEYWORDS:
+            if kw in msg:
+                scores["weather"] += len(kw) * 2  # Weather gets higher priority
 
-        patterns = [r"(?:open|go to|visit|kholo)\s+(.+?)(?:\s+please|\s+now|\s+karo)?$"]
-        for pattern in patterns:
-            match = re.search(pattern, lower)
-            if match:
-                site = match.group(1).strip().replace("please", "").strip()
-                if site in websites:
-                    return self.pc.open_chrome(websites[site])
-                for name, url in websites.items():
-                    if name in site or site in name:
-                        return self.pc.open_chrome(url)
+        for kw in self.NEWS_KEYWORDS:
+            if kw in msg:
+                scores["news"] += len(kw)
+
+        for kw in self.WIKI_KEYWORDS:
+            if kw in msg:
+                scores["wiki"] += len(kw) * 2  # Only explicit wiki/wikipedia
+
+        for kw in self.SEARCH_KEYWORDS:
+            if kw in msg:
+                scores["search"] += len(kw)
+
+        max_score = max(scores.values())
+
+        if max_score == 0:
+            return None
+
+        # Higher threshold — need stronger match
+        if max_score < 4:
+            return None
+
+        best_tool = max(scores, key=scores.get)
+
+        if best_tool in self.tools and self.tools[best_tool]["available"]:
+            return best_tool
+
         return None
 
-    def _detect_browser(self, text):
-        match = re.search(r"(?:google|search for)\s+(.+?)$", text)
-        if match:
-            query = match.group(1).strip()
-            if len(query) > 1:
-                return self.pc.chrome_search(query)
-        if "new tab" in text:
-            return self.pc.chrome_new_tab()
-        return None
+    # ========================================
+    # Tool Handlers
+    # ========================================
 
-    def _detect_open_folder(self, lower):
-        folders = {
-            "downloads": os.path.expanduser("~\\Downloads"),
-            "desktop": os.path.expanduser("~\\Desktop"),
-            "documents": os.path.expanduser("~\\Documents"),
-            "pictures": os.path.expanduser("~\\Pictures"),
-            "music": os.path.expanduser("~\\Music"),
-            "videos": os.path.expanduser("~\\Videos"),
-            "home": os.path.expanduser("~"),
-            "c drive": "C:\\", "d drive": "D:\\", "k drive": "K:\\",
+    def _handle_weather(self, msg, original):
+        """Handle weather-related messages"""
+        city = self._extract_city(msg)
+
+        if not city:
+            return None  # Let AI brain handle — maybe it's not really weather
+
+        forecast_words = ["forecast", "agle din", "kal", "next days", "week", "hafta"]
+        if any(w in msg for w in forecast_words):
+            return self._get_forecast(city)
+
+        return self._get_weather(city)
+
+    def _handle_news(self, msg, original):
+        """Handle news-related messages"""
+
+        category_map = {
+            "tech": "technology",
+            "technology": "technology",
+            "sport": "sports",
+            "sports": "sports",
+            "khel": "sports",
+            "business": "business",
+            "karobar": "business",
+            "science": "science",
+            "health": "health",
+            "sehat": "health",
+            "entertainment": "entertainment",
+            "film": "entertainment",
+            "movie": "entertainment"
         }
-        for name, path in folders.items():
-            if f"open {name}" in lower or f"{name} kholo" in lower:
-                if os.path.exists(path):
-                    return self.pc.open_folder(path)
-        return None
 
-    def _detect_file_search(self, lower):
-        ext_match = re.search(r"(?:find|show|list)\s+(?:all\s+)?(\w+)\s+files", lower)
-        if ext_match:
-            ext_name = ext_match.group(1).strip()
-            ext_map = {"python": ".py", "text": ".txt", "pdf": ".pdf", "word": ".docx",
-                       "image": ".png", "video": ".mp4", "music": ".mp3", "json": ".json",
-                       "html": ".html", "excel": ".xlsx", "zip": ".zip"}
-            if ext_name in ext_map:
-                results = self.fm.search_by_extension(ext_map[ext_name])
-                return self.fm.format_results(results, f"{ext_name.upper()} Files")
+        detected_category = None
+        for keyword, category in category_map.items():
+            if keyword in msg:
+                detected_category = category
+                break
 
-        if any(kw in lower for kw in ["recent files", "latest files", "naye files"]):
-            return self.fm.format_results(self.fm.search_recent(hours=24), "Recent Files")
+        country = "us"
+        country_map = {
+            "pakistan": "pk", "pak": "pk",
+            "india": "in", "indian": "in",
+            "us": "us", "usa": "us", "america": "us",
+            "uk": "gb", "britain": "gb", "england": "gb",
+            "uae": "ae", "dubai": "ae"
+        }
 
-        if any(kw in lower for kw in ["large files", "big files", "heavy files"]):
-            return self.fm.format_results(self.fm.search_large_files(min_size_mb=50), "Large Files")
+        for keyword, code in country_map.items():
+            if keyword in msg:
+                country = code
+                break
 
-        match = re.search(r"(?:find|dhundo|khojo)\s+(?:for\s+)?(.+?)(?:\s+files?)?$", lower)
-        if match:
-            query = match.group(1).strip()
-            if len(query) > 1 and query not in ["the", "a", "my", "all"]:
-                return self.fm.format_results(self.fm.search(query), f"'{query}'")
+        return self._get_news(detected_category, country)
 
-        list_match = re.search(r"(?:list|dikhao)\s+(.+?)(?:\s+files)?$", lower)
-        if list_match:
-            folder = list_match.group(1).strip()
-            folder_map = {"downloads": "~\\Downloads", "desktop": "~\\Desktop", "documents": "~\\Documents"}
-            if folder in folder_map:
-                items = self.fm.list_folder(os.path.expanduser(folder_map[folder]))
-                output = f"📂 {folder.title()} ({len(items)}):\n"
-                for item in items[:15]:
-                    output += f"   {item['icon']} {item['name']} ({item['size_str']})\n"
-                return output
-        return None
+    def _handle_wiki(self, msg, original):
+        """Handle Wikipedia-related messages — ONLY when explicitly asked"""
+        topic = self._extract_topic(msg)
 
-    def _detect_file_operations(self, lower, original):
-        match = re.search(r"(?:create|make|bana)\s+(?:a\s+)?folder\s+(.+?)$", lower)
-        if match:
-            name = match.group(1).strip()
-            return self.fm.create_folder(os.path.join(os.path.expanduser("~\\Desktop"), name))
-        return None
+        if not topic:
+            return None  # Let AI brain handle
 
-    def _detect_disk_info(self, lower):
-        if any(kw in lower for kw in ["disk space", "storage space", "free space", "disk info"]):
-            drives = ["C:"] + [f"{d}:" for d in "DEFK" if os.path.exists(f"{d}:\\")]
-            output = "💾 Disk:\n"
-            for drive in drives:
-                info = self.fm.get_disk_space(drive)
-                if isinstance(info, dict):
-                    output += f"   {drive} — {info['free']} free / {info['total']} ({info['percent_used']}%)\n"
-            return output
-        return None
+        urdu_words = ["urdu", "urdu mein", "اردو"]
+        if any(w in msg for w in urdu_words):
+            return self._get_wiki_urdu(topic)
 
-    def _detect_type_text(self, lower, original):
-        match = re.search(r"(?:type|write|likho)\s+[\"'](.+?)[\"']", lower)
-        if match:
-            return self.pc.type_text(match.group(1))
-        match = re.search(r"(?:type|write|likho)\s+(.+?)$", lower)
-        if match:
-            t = match.group(1).strip()
-            if len(t) > 1 and t not in ["something", "text", "kuch"]:
-                return self.pc.type_text(t)
-        return None
+        return self._get_wiki(topic)
 
-    def _detect_keyboard(self, text):
-        hotkeys = [
-            (r"ctrl\s*\+\s*c", ["ctrl", "c"]), (r"ctrl\s*\+\s*v", ["ctrl", "v"]),
-            (r"ctrl\s*\+\s*z", ["ctrl", "z"]), (r"ctrl\s*\+\s*s", ["ctrl", "s"]),
-            (r"alt\s*\+\s*tab", ["alt", "tab"]), (r"alt\s*\+\s*f4", ["alt", "F4"]),
+    def _handle_search(self, msg, original):
+        """Handle search-related messages"""
+        query = self._extract_search_query(msg)
+
+        if not query:
+            return None
+
+        video_words = ["video", "youtube", "watch", "dekho"]
+        if any(w in msg for w in video_words):
+            return self._do_video_search(query)
+
+        image_words = ["image", "photo", "picture", "tasveer", "pic"]
+        if any(w in msg for w in image_words):
+            return self._do_image_search(query)
+
+        return self._do_search(query)
+
+    # ========================================
+    # Tool Execution Methods
+    # ========================================
+
+    def _get_weather(self, city):
+        if "weather" not in self.tools:
+            return "⚠️ Weather tool not loaded."
+        try:
+            tool = self.tools["weather"]["instance"]
+            return tool.get_current_weather(city)
+        except Exception as e:
+            return f"⚠️ Weather error: {str(e)}"
+
+    def _get_forecast(self, city, days=3):
+        if "weather" not in self.tools:
+            return "⚠️ Weather tool not loaded."
+        try:
+            tool = self.tools["weather"]["instance"]
+            return tool.get_forecast(city, days=days)
+        except Exception as e:
+            return f"⚠️ Forecast error: {str(e)}"
+
+    def _get_news(self, category=None, country="us"):
+        if "news" not in self.tools:
+            return "⚠️ News tool not loaded."
+        try:
+            tool = self.tools["news"]["instance"]
+            if category:
+                return tool.get_category_news(category, country=country, count=5)
+            else:
+                return tool.get_top_headlines(country=country, count=5)
+        except Exception as e:
+            return f"⚠️ News error: {str(e)}"
+
+    def _do_search(self, query):
+        if "search" not in self.tools:
+            return "⚠️ Search tool not loaded."
+        try:
+            tool = self.tools["search"]["instance"]
+            return tool.search(query, count=5)
+        except Exception as e:
+            return f"⚠️ Search error: {str(e)}"
+
+    def _do_video_search(self, query):
+        if "search" not in self.tools:
+            return "⚠️ Search tool not loaded."
+        try:
+            tool = self.tools["search"]["instance"]
+            return tool.search_videos(query, count=5)
+        except Exception as e:
+            return f"⚠️ Video search error: {str(e)}"
+
+    def _do_image_search(self, query):
+        if "search" not in self.tools:
+            return "⚠️ Search tool not loaded."
+        try:
+            tool = self.tools["search"]["instance"]
+            return tool.search_images(query, count=5)
+        except Exception as e:
+            return f"⚠️ Image search error: {str(e)}"
+
+    def _get_wiki(self, topic):
+        if "wiki" not in self.tools:
+            return "⚠️ Wiki tool not loaded."
+        try:
+            tool = self.tools["wiki"]["instance"]
+            return tool.get_summary(topic, sentences=5)
+        except Exception as e:
+            return f"⚠️ Wiki error: {str(e)}"
+
+    def _get_wiki_urdu(self, topic):
+        if "wiki" not in self.tools:
+            return "⚠️ Wiki tool not loaded."
+        try:
+            tool = self.tools["wiki"]["instance"]
+            return tool.get_urdu_summary(topic, sentences=5)
+        except Exception as e:
+            return f"⚠️ Urdu wiki error: {str(e)}"
+
+    def _get_fact(self, topic):
+        if "wiki" not in self.tools:
+            return "⚠️ Wiki tool not loaded."
+        try:
+            tool = self.tools["wiki"]["instance"]
+            return tool.quick_fact(topic)
+        except Exception as e:
+            return f"⚠️ Fact error: {str(e)}"
+
+    # ========================================
+    # Text Extraction Helpers
+    # ========================================
+
+    def _extract_city(self, msg):
+        remove_words = [
+            "weather", "mausam", "temperature", "temp",
+            "forecast", "in", "of", "ka", "ki", "ke",
+            "kya", "hai", "ha", "batao", "dikhao", "show",
+            "what", "is", "the", "whats", "how", "hot",
+            "cold", "rain", "sunny", "please", "bro",
+            "me", "mujhe", "tell", "get", "check"
         ]
-        for p, k in hotkeys:
-            if re.search(p, text):
-                return self.pc.hotkey(*k)
-        keys = [(r"press\s+enter", "enter"), (r"press\s+escape", "escape"),
-                (r"press\s+tab", "tab"), (r"press\s+space", "space")]
-        for p, k in keys:
-            if re.search(p, text):
-                return self.pc.press_key(k)
-        return None
 
-    def _detect_window(self, text):
-        if "minimize" in text: return self.pc.minimize_window()
-        if "maximize" in text or "full screen" in text: return self.pc.maximize_window()
-        if "switch window" in text or "alt tab" in text: return self.pc.switch_window()
-        if "show desktop" in text: return self.pc.show_desktop()
-        if "close window" in text: return self.pc.close_window()
-        if "snap left" in text: return self.pc.snap_left()
-        if "snap right" in text: return self.pc.snap_right()
-        return None
+        words = msg.split()
+        city_words = []
 
-    def _detect_scroll(self, text):
-        if "scroll up" in text: return self.pc.scroll(5)
-        if "scroll down" in text: return self.pc.scroll(-5)
-        return None
+        for word in words:
+            clean = word.strip("?,!.\"'")
+            if clean and clean not in remove_words and len(clean) > 1:
+                city_words.append(clean)
 
-    def _detect_system(self, text):
-        if "lock screen" in text: return self.pc.lock_screen()
-        if "mouse position" in text: return self.pc.get_mouse_position()
-        if "screen size" in text or "resolution" in text: return self.pc.get_screen_size()
-        match = re.search(r"brightness\s*(\d+)", text)
-        if match: return self.pc.set_brightness(int(match.group(1)))
-        return None
+        city = " ".join(city_words).strip()
 
-    def _detect_system_info(self, text):
-        if any(kw in text for kw in ["system info", "pc info", "computer info", "about my pc"]):
-            return self.si.get_all_info()
-        if any(kw in text for kw in ["battery", "charge", "battery status"]):
-            return self.si.get_battery()
-        if any(kw in text for kw in ["wifi", "network", "internet status", "wifi name"]):
-            return self.si.get_wifi()
-        if any(kw in text for kw in ["my ip", "ip address"]):
-            return self.si.get_ip()
-        if any(kw in text for kw in ["uptime", "how long running"]):
-            return self.si.get_uptime()
-        if any(kw in text for kw in ["running apps", "open apps", "active apps"]):
-            return self.si.get_running_apps()
-        if any(kw in text for kw in ["what time", "kya time", "date and time", "today date"]):
-            return self.si.get_date_time()
-        if any(kw in text for kw in ["quick info", "system status", "pc status"]):
-            return self.si.get_quick_info()
-        return None
+        if city:
+            city = city.title()
+
+        return city if city else None
+
+    def _extract_topic(self, msg):
+        remove_words = [
+            "wiki", "wikipedia", "please", "bro",
+            "the", "a", "an", "from"
+        ]
+
+        # Remove "wiki" or "wikipedia" from message
+        cleaned = msg
+        for w in ["wikipedia", "wiki"]:
+            cleaned = cleaned.replace(w, "")
+
+        words = cleaned.split()
+        topic_words = []
+
+        for word in words:
+            clean = word.strip("?,!.\"'")
+            if clean and clean not in remove_words and len(clean) > 1:
+                topic_words.append(clean)
+
+        topic = " ".join(topic_words).strip()
+
+        if topic:
+            topic = topic.title()
+
+        return topic if topic else None
+
+    def _extract_search_query(self, msg):
+        remove_words = [
+            "search", "google", "find", "look", "up",
+            "for", "me", "please", "karo", "kro",
+            "dhoondo", "talash", "show", "results",
+            "internet", "bro"
+        ]
+
+        words = msg.split()
+        query_words = []
+
+        for word in words:
+            clean = word.strip("?,!.\"'")
+            if clean and clean not in remove_words and len(clean) > 1:
+                query_words.append(clean)
+
+        return " ".join(query_words).strip() if query_words else None
+
+    # ========================================
+    # Utility Methods
+    # ========================================
 
     def toggle(self):
         self.enabled = not self.enabled
-        return self.enabled
+        status = "enabled" if self.enabled else "disabled"
+        return f"🔧 Tools {status}"
 
     def is_enabled(self):
         return self.enabled
+
+    def _list_tools(self):
+        lines = [
+            "\n🔧 Spidey Tools",
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        ]
+
+        for key, info in self.tools.items():
+            status = "✅" if info["available"] else "❌"
+            lines.append(f"  {status} {info['name']} — {info['description']}")
+
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append("\n📌 Direct Commands:")
+        lines.append("  /weather <city>     — Get weather")
+        lines.append("  /forecast <city>    — Get forecast")
+        lines.append("  /news [category]    — Get news")
+        lines.append("  /search <query>     — Search internet")
+        lines.append("  /wiki <topic>       — Wikipedia summary")
+        lines.append("  /fact <topic>       — Quick fact")
+        lines.append("  /tools              — Show this list")
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+        lines.append("\n💡 Smart Detection:")
+        lines.append("  'Karachi ka weather'  → Weather tool")
+        lines.append("  'latest news'         → News tool")
+        lines.append("  'search Python'       → Search tool")
+        lines.append("  'wiki Pakistan'       → Wikipedia")
+        lines.append("  'tell me about X'     → AI Brain (smart!)")
+        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        return "\n".join(lines)
+
+    def get_tools_info(self):
+        return {
+            key: {
+                "name": info["name"],
+                "available": info["available"],
+                "description": info["description"]
+            }
+            for key, info in self.tools.items()
+        }

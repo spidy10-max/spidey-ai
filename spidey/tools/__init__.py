@@ -22,6 +22,7 @@ from spidey.tools.tool_connector import ToolConnector
 from spidey.tools.computer import ComputerControl
 from spidey.tools.file_manager import FileManager
 from spidey.tools.system_info import SystemInfo
+from .weather_tool import WeatherTool
 
 __all__ = [
     "ToolConnector",
