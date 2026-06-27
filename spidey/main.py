@@ -1,5 +1,6 @@
 """
-Spidey AI - Main (With Agent + Emojis!)
+Spidey AI - Main (With Agent + Registry!)
+Day 45
 """
 from spidey.brain.chat import SpideyBrain
 from spidey.config import settings, APP_NAME, APP_VERSION, LOGS_DIR
@@ -19,6 +20,8 @@ def print_banner():
     print("   SPIDEY AI v" + APP_VERSION)
     print("=" * 55)
     print("   [AGENT]   agent <task> | plan <task> | agent tools")
+    print("   [AGENT]   agent registry | agent info <tool>")
+    print("   [AGENT]   agent log | agent history")
     print("   [VOICE]   spidey beta | v | speakmode")
     print("   [LANG]    urdu | english | hindi | setvoice")
     print("   [CHAT]    quit | reset | count")
@@ -111,25 +114,50 @@ def main():
                 break
 
             # ========================================
-            # AGENT COMMANDS — Fixed!
+            # AGENT COMMANDS
             # ========================================
 
-            # "agent tools" — show agent's available tools
             if cmd == "agent tools":
                 print("\n" + brain.agent_tools() + "\n")
                 continue
 
-            # "agent log" — show last execution log
             if cmd == "agent log":
-                if hasattr(brain.agent, 'react_agent') and brain.agent.react_agent:
+                if hasattr(brain.agent, 'get_last_log'):
+                    print("\n" + brain.agent.get_last_log() + "\n")
+                elif hasattr(brain.agent, 'react_agent') and brain.agent.react_agent:
                     print("\n" + brain.agent.react_agent.get_last_log() + "\n")
                 else:
                     print("\n   No log available.\n")
                 continue
 
-            # "agent <task>" — execute task directly
+            if cmd == "agent history":
+                if hasattr(brain.agent, 'get_task_history'):
+                    print("\n" + brain.agent.get_task_history() + "\n")
+                else:
+                    print("\n   No history available.\n")
+                continue
+
+            if cmd == "agent registry":
+                try:
+                    from spidey.agent.tool_registry import ToolRegistry
+                    reg = ToolRegistry()
+                    print(reg.display_all())
+                except Exception as e:
+                    print(f"\n   Error: {e}\n")
+                continue
+
+            if cmd.startswith("agent info "):
+                tool_name = user_input[11:].strip()
+                try:
+                    from spidey.agent.tool_registry import ToolRegistry
+                    reg = ToolRegistry()
+                    print(reg.display_tool(tool_name))
+                except Exception as e:
+                    print(f"\n   Error: {e}\n")
+                continue
+
             if cmd.startswith("agent "):
-                task = user_input[6:].strip()  # Remove "agent " prefix
+                task = user_input[6:].strip()
                 if task:
                     try:
                         print()
@@ -142,7 +170,6 @@ def main():
                         print("\n   Cancelled!\n")
                 continue
 
-            # "agent" alone — ask for task
             if cmd == "agent":
                 try:
                     task = input("   Agent Task: ").strip()
@@ -157,14 +184,12 @@ def main():
                     print("\n   Cancelled!\n")
                 continue
 
-            # "plan <task>" — plan without executing
             if cmd.startswith("plan "):
-                task = user_input[5:].strip()  # Remove "plan " prefix
+                task = user_input[5:].strip()
                 if task:
                     try:
                         result = brain.agent_plan(task)
                         print()
-                        # Handle both string and list returns
                         if isinstance(result, str):
                             print(result)
                         elif isinstance(result, list):
@@ -176,7 +201,6 @@ def main():
                         print("\n   Cancelled!\n")
                 continue
 
-            # "plan" alone — ask for task
             if cmd == "plan":
                 try:
                     task = input("   Plan Task: ").strip()
@@ -194,7 +218,6 @@ def main():
                     print("\n   Cancelled!\n")
                 continue
 
-            # "tools" — show tools (both agent and regular)
             if cmd == "tools":
                 print("\n" + brain.agent_tools() + "\n")
                 continue
@@ -553,7 +576,7 @@ def main():
                 continue
 
             # ========================================
-            # AI CHAT (LAST — catches everything else)
+            # AI CHAT (LAST)
             # ========================================
             try:
                 print()

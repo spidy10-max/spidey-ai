@@ -1,24 +1,21 @@
 """
 Spidey ReAct Agent v2
-Enhanced with multi-step task handling, better parsing, and tool chaining
-Day 44 — AI Agent Brain
+Enhanced with Tool Registry, multi-step tasks, better parsing
+Day 45 — AI Agent Brain
 """
 
-import json
 import re
 import time
 from datetime import datetime
 
+try:
+    from spidey.agent.tool_registry import ToolRegistry
+    REGISTRY_AVAILABLE = True
+except ImportError:
+    REGISTRY_AVAILABLE = False
+
 
 class ReActAgent:
-    """
-    ReAct Agent v2 for Spidey AI
-    - Better prompt engineering
-    - Multi-step task handling
-    - Tool chaining
-    - Error recovery
-    - Execution summary
-    """
 
     def __init__(self, brain):
         self.brain = brain
@@ -26,10 +23,15 @@ class ReActAgent:
         self.tools = {}
         self.execution_log = []
         self.task_history = []
+
+        if REGISTRY_AVAILABLE:
+            self.tool_registry = ToolRegistry()
+        else:
+            self.tool_registry = None
+
         self._register_tools()
 
     def _register_tools(self):
-        """Register all available tools from ToolConnector"""
         if hasattr(self.brain, 'tools') and hasattr(self.brain.tools, 'tools'):
             for name, info in self.brain.tools.tools.items():
                 self.tools[name] = {
@@ -51,14 +53,12 @@ class ReActAgent:
         }
 
     def get_tools_description(self):
-        """Generate tools description for AI prompt"""
         lines = []
         for name, info in self.tools.items():
             lines.append(f"  - {name}: {info['description']}")
         return "\n".join(lines)
 
     def build_react_prompt(self, task, steps_so_far):
-        """Build enhanced ReAct prompt"""
         steps_text = ""
         if steps_so_far:
             for step in steps_so_far:
@@ -66,33 +66,27 @@ class ReActAgent:
                 steps_text += f"\nAction: {step.get('action', '')}"
                 steps_text += f"\nObservation: {step.get('observation', '')}\n"
 
+        if self.tool_registry:
+            tools_desc = self.tool_registry.generate_short_prompt()
+        else:
+            tools_desc = self.get_tools_description()
+
         prompt = f"""You are Spidey AI Agent. You solve complex tasks step by step.
 
-AVAILABLE TOOLS:
-{self.get_tools_description()}
+{tools_desc}
 
 ACTION FORMAT (use EXACTLY this):
-  weather | current | city=CityName
-  weather | forecast | city=CityName, days=3
-  search | text | query=YourSearchQuery
-  search | news | query=NewsQuery
-  search | videos | query=VideoQuery
-  wiki | summary | topic=TopicName
-  wiki | fact | topic=TopicName
-  news | headlines | country=us
-  news | headlines | country=pk, category=technology
-  ai_think | analyze | question=Your question here
-  final_answer | Your complete final answer here
+  tool_name | action_type | param1=value1, param2=value2
 
 RULES:
-1. ALWAYS start with "Thought:" then "Action:"
+1. ALWAYS respond with "Thought:" then "Action:"
 2. Break complex tasks into simple steps
 3. Use tools to get REAL data — don't make up facts
 4. After getting observations, THINK about next step
-5. When you have enough info, use final_answer
-6. Combine all observations in final_answer
-7. Maximum {self.max_steps} steps
-8. For multi-part tasks, handle each part separately
+5. When you have enough info, use: final_answer | Your complete answer
+6. Maximum {self.max_steps} steps
+7. For multi-part tasks, handle each part separately
+8. Use EXACT tool action formats from examples above
 
 TASK: {task}
 {steps_text}
@@ -101,11 +95,9 @@ Next step (Thought then Action):"""
         return prompt
 
     def parse_ai_response(self, response):
-        """Parse AI response to extract Thought and Action"""
         thought = ""
         action_raw = ""
 
-        # Extract Thought
         thought_match = re.search(
             r"Thought:\s*(.+?)(?=\nAction:|$)",
             response,
@@ -114,7 +106,6 @@ Next step (Thought then Action):"""
         if thought_match:
             thought = thought_match.group(1).strip()
 
-        # Extract Action
         action_match = re.search(
             r"Action:\s*(.+?)(?=\nThought:|$)",
             response,
@@ -122,28 +113,23 @@ Next step (Thought then Action):"""
         )
         if action_match:
             action_raw = action_match.group(1).strip()
-            # Clean up — remove extra lines
             action_raw = action_raw.split("\n")[0].strip()
 
-        # Fallback — try to find tool pattern directly
         if not action_raw:
             tool_match = re.search(
                 r"(weather|search|wiki|news|ai_think|final_answer)\s*\|",
                 response
             )
             if tool_match:
-                # Extract from this point
                 start = tool_match.start()
                 action_raw = response[start:].split("\n")[0].strip()
 
         return thought, action_raw
 
     def parse_action(self, action_raw):
-        """Parse action string into tool_name, action_type, params"""
         parts = [p.strip() for p in action_raw.split("|")]
 
         if len(parts) < 2:
-            # Maybe it's a final_answer without pipe
             if action_raw.lower().startswith("final_answer"):
                 answer = action_raw.replace("final_answer", "").strip()
                 return "final_answer", answer, {}
@@ -163,7 +149,6 @@ Next step (Thought then Action):"""
         return tool_name, action_type, params
 
     def execute_action(self, tool_name, action_type, params):
-        """Execute a tool action and return the observation"""
 
         if tool_name == "final_answer":
             return action_type
@@ -221,12 +206,13 @@ Next step (Thought then Action):"""
                 return tool.quick_fact(topic)
             elif action_type == "search":
                 return tool.search(topic)
+            elif action_type == "urdu":
+                return tool.get_urdu_summary(topic)
             else:
                 return tool.get_summary(topic, sentences=sentences)
 
         if tool_name == "news":
             if "news" not in self.tools or not self.tools["news"]["instance"]:
-                # Fallback to search news
                 if "search" in self.tools and self.tools["search"]["instance"]:
                     query = params.get("query", params.get("category", "latest news"))
                     return self.tools["search"]["instance"].search_news(query, count=3)
@@ -235,7 +221,10 @@ Next step (Thought then Action):"""
             country = params.get("country", "us")
             category = params.get("category", None)
             count = int(params.get("count", 3))
-            if category:
+            topic = params.get("topic", None)
+            if topic:
+                return tool.get_rss_news(topic, count=count)
+            elif category:
                 return tool.get_category_news(category, country=country, count=count)
             else:
                 return tool.get_top_headlines(country=country, count=count)
@@ -243,7 +232,6 @@ Next step (Thought then Action):"""
         return f"Unknown tool: {tool_name}. Available: {', '.join(self.tools.keys())}"
 
     def execute(self, task):
-        """Main execution loop"""
         print(f"\n🤖 Agent starting task: {task}")
         print("━" * 50)
 
@@ -284,14 +272,11 @@ Next step (Thought then Action):"""
                 errors += 1
                 if errors >= max_errors:
                     break
-
-                # Try to use the raw response as final answer
                 if len(ai_response) > 50:
                     final_answer = ai_response
                     break
                 continue
 
-            # Show thought (truncated)
             thought_preview = thought[:120] + "..." if len(thought) > 120 else thought
             print(f"   💭 Thought: {thought_preview}")
 
@@ -302,7 +287,6 @@ Next step (Thought then Action):"""
                     break
                 continue
 
-            # Parse action
             tool_name, action_type, params = self.parse_action(action_raw)
 
             if not tool_name:
@@ -314,7 +298,6 @@ Next step (Thought then Action):"""
 
             print(f"   🔧 Action: {tool_name} | {action_type} | {params}")
 
-            # Final answer check
             if tool_name == "final_answer":
                 final_answer = action_type
                 print(f"   ✅ Final Answer reached!")
@@ -328,7 +311,6 @@ Next step (Thought then Action):"""
                 self.execution_log.append(step_data)
                 break
 
-            # Execute the action
             print(f"   ⏳ Executing {tool_name}...")
             try:
                 observation = self.execute_action(tool_name, action_type, params)
@@ -337,11 +319,9 @@ Next step (Thought then Action):"""
                 print(f"   ❌ {observation}")
                 errors += 1
 
-            # Show observation preview
             obs_preview = str(observation)[:150].replace("\n", " ")
             print(f"   👁️ Observation: {obs_preview}...")
 
-            # Save step
             step_data = {
                 "step": step_num,
                 "thought": thought,
@@ -351,13 +331,10 @@ Next step (Thought then Action):"""
             steps.append(step_data)
             self.execution_log.append(step_data)
 
-        # Calculate time
         elapsed = time.time() - start_time
 
-        # If no final answer, compile from observations
         if not final_answer:
             if steps:
-                # Ask AI to summarize all observations
                 observations_text = ""
                 for s in steps:
                     if s["observation"] != "Task complete":
@@ -381,10 +358,8 @@ Next step (Thought then Action):"""
             else:
                 final_answer = "Could not process the task. Please try rephrasing."
 
-        # Build report
         report = self._build_report(task, steps, final_answer, elapsed)
 
-        # Save to history
         self.task_history.append({
             "task": task,
             "steps": len(steps),
@@ -398,11 +373,14 @@ Next step (Thought then Action):"""
         return report
 
     def plan_task(self, task):
-        """Plan a task without executing"""
+        if self.tool_registry:
+            tools_desc = self.tool_registry.generate_short_prompt()
+        else:
+            tools_desc = self.get_tools_description()
+
         prompt = f"""You are Spidey AI Agent. Create a step-by-step plan for this task.
 
-Available Tools:
-{self.get_tools_description()}
+{tools_desc}
 
 TASK: {task}
 
@@ -443,7 +421,6 @@ Final: [How to combine everything into answer]"""
             return f"⚠️ Planning error: {str(e)}"
 
     def _build_report(self, task, steps, final_answer, elapsed):
-        """Build formatted execution report"""
         lines = [
             f"\n🤖 Agent Report",
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -465,7 +442,6 @@ Final: [How to combine everything into answer]"""
         return "\n".join(lines)
 
     def get_available_tools(self):
-        """List all available tools"""
         lines = [
             "\n🔧 Agent Tools",
             "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -476,22 +452,21 @@ Final: [How to combine everything into answer]"""
             lines.append(f"  {status} {name}: {info['description']}")
 
         lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
         lines.append("\n📌 Usage Examples:")
         lines.append("  agent What is the weather in Karachi")
         lines.append("  agent Tell me about Python from Wikipedia")
         lines.append("  agent Search best laptops 2025 and summarize")
         lines.append("  agent Weather in Lahore and suggest activities")
-        lines.append("  agent Compare Python vs JavaScript")
         lines.append("  plan Search AI news and summarize")
         lines.append("  agent tools")
+        lines.append("  agent registry")
+        lines.append("  agent info weather")
         lines.append("  agent log")
         lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
         return "\n".join(lines)
 
     def get_last_log(self):
-        """Get execution log of last task"""
         if not self.execution_log:
             return "No execution log available. Run a task first!"
 
@@ -507,7 +482,6 @@ Final: [How to combine everything into answer]"""
         return "\n".join(lines)
 
     def get_task_history(self):
-        """Get history of all executed tasks"""
         if not self.task_history:
             return "No tasks executed yet."
 
@@ -517,3 +491,9 @@ Final: [How to combine everything into answer]"""
         lines.append("━" * 40)
 
         return "\n".join(lines)
+
+
+if __name__ == "__main__":
+    print("🕷️ ReAct Agent — This needs SpideyBrain to run")
+    print("Use: python -m spidey.main")
+    print("Then: agent <your task>")
