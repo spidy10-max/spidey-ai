@@ -1,7 +1,7 @@
 """
-Spidey ReAct Agent v2
-Enhanced with Tool Registry, multi-step tasks, better parsing
-Day 45 — AI Agent Brain
+Spidey ReAct Agent v3
+With Safety Checks
+Day 48
 """
 
 import re
@@ -14,6 +14,8 @@ try:
 except ImportError:
     REGISTRY_AVAILABLE = False
 
+from spidey.agent.safety import SafetyChecker
+
 
 class ReActAgent:
 
@@ -23,6 +25,7 @@ class ReActAgent:
         self.tools = {}
         self.execution_log = []
         self.task_history = []
+        self.safety = SafetyChecker()
 
         if REGISTRY_AVAILABLE:
             self.tool_registry = ToolRegistry()
@@ -87,6 +90,7 @@ RULES:
 6. Maximum {self.max_steps} steps
 7. For multi-part tasks, handle each part separately
 8. Use EXACT tool action formats from examples above
+9. NEVER execute dangerous commands (delete files, shutdown, etc.)
 
 TASK: {task}
 {steps_text}
@@ -98,28 +102,17 @@ Next step (Thought then Action):"""
         thought = ""
         action_raw = ""
 
-        thought_match = re.search(
-            r"Thought:\s*(.+?)(?=\nAction:|$)",
-            response,
-            re.DOTALL
-        )
+        thought_match = re.search(r"Thought:\s*(.+?)(?=\nAction:|$)", response, re.DOTALL)
         if thought_match:
             thought = thought_match.group(1).strip()
 
-        action_match = re.search(
-            r"Action:\s*(.+?)(?=\nThought:|$)",
-            response,
-            re.DOTALL
-        )
+        action_match = re.search(r"Action:\s*(.+?)(?=\nThought:|$)", response, re.DOTALL)
         if action_match:
             action_raw = action_match.group(1).strip()
             action_raw = action_raw.split("\n")[0].strip()
 
         if not action_raw:
-            tool_match = re.search(
-                r"(weather|search|wiki|news|ai_think|final_answer)\s*\|",
-                response
-            )
+            tool_match = re.search(r"(weather|search|wiki|news|ai_think|final_answer)\s*\|", response)
             if tool_match:
                 start = tool_match.start()
                 action_raw = response[start:].split("\n")[0].strip()
@@ -149,6 +142,18 @@ Next step (Thought then Action):"""
         return tool_name, action_type, params
 
     def execute_action(self, tool_name, action_type, params):
+        """Execute a tool action with SAFETY CHECKS"""
+
+        # ========== SAFETY CHECK ==========
+        safety_result = self.safety.check_agent_action(tool_name, action_type, params)
+
+        if safety_result["action"] == "block":
+            return f"🚫 BLOCKED: {safety_result['reason']}"
+
+        if safety_result["action"] == "confirm":
+            if not self.safety.ask_confirmation(safety_result["reason"], safety_result["risk_level"]):
+                return "❌ Action cancelled by user."
+        # ==================================
 
         if tool_name == "final_answer":
             return action_type
@@ -232,6 +237,17 @@ Next step (Thought then Action):"""
         return f"Unknown tool: {tool_name}. Available: {', '.join(self.tools.keys())}"
 
     def execute(self, task):
+        # ========== TASK SAFETY CHECK ==========
+        task_safety = self.safety.check_command(task)
+
+        if task_safety["action"] == "block":
+            return f"🚫 Task BLOCKED: {task_safety['reason']}"
+
+        if task_safety["action"] == "confirm":
+            if not self.safety.ask_confirmation(task_safety["reason"], task_safety["risk_level"]):
+                return "❌ Task cancelled by user."
+        # =======================================
+
         print(f"\n🤖 Agent starting task: {task}")
         print("━" * 50)
 
@@ -250,7 +266,7 @@ Next step (Thought then Action):"""
             try:
                 result = self.brain.provider_manager.chat(
                     messages=[
-                        {"role": "system", "content": "You are Spidey AI Agent. Follow ReAct format: Thought then Action."},
+                        {"role": "system", "content": "You are Spidey AI Agent. Follow ReAct format: Thought then Action. NEVER suggest dangerous commands."},
                         {"role": "user", "content": prompt}
                     ],
                     temperature=0.3,
@@ -261,14 +277,12 @@ Next step (Thought then Action):"""
                 print(f"   ❌ AI Error: {e}")
                 errors += 1
                 if errors >= max_errors:
-                    print(f"   ❌ Too many errors. Stopping.")
                     break
                 continue
 
             thought, action_raw = self.parse_ai_response(ai_response)
 
             if not thought and not action_raw:
-                print(f"   ⚠️ Could not parse response")
                 errors += 1
                 if errors >= max_errors:
                     break
@@ -281,7 +295,6 @@ Next step (Thought then Action):"""
             print(f"   💭 Thought: {thought_preview}")
 
             if not action_raw:
-                print(f"   ⚠️ No action found, trying to continue...")
                 errors += 1
                 if errors >= max_errors:
                     break
@@ -290,7 +303,6 @@ Next step (Thought then Action):"""
             tool_name, action_type, params = self.parse_action(action_raw)
 
             if not tool_name:
-                print(f"   ⚠️ Could not parse action: {action_raw[:80]}")
                 errors += 1
                 if errors >= max_errors:
                     break
@@ -304,7 +316,7 @@ Next step (Thought then Action):"""
                 step_data = {
                     "step": step_num,
                     "thought": thought,
-                    "action": f"final_answer",
+                    "action": "final_answer",
                     "observation": "Task complete"
                 }
                 steps.append(step_data)
@@ -315,8 +327,7 @@ Next step (Thought then Action):"""
             try:
                 observation = self.execute_action(tool_name, action_type, params)
             except Exception as e:
-                observation = f"Error executing {tool_name}: {str(e)}"
-                print(f"   ❌ {observation}")
+                observation = f"Error: {str(e)}"
                 errors += 1
 
             obs_preview = str(observation)[:150].replace("\n", " ")
@@ -344,8 +355,8 @@ Next step (Thought then Action):"""
                     try:
                         summary_result = self.brain.provider_manager.chat(
                             messages=[
-                                {"role": "system", "content": "Summarize these results into a clear, helpful answer."},
-                                {"role": "user", "content": f"Task: {task}\n\nResults:\n{observations_text}\n\nGive a clear summary answer:"}
+                                {"role": "system", "content": "Summarize these results into a clear answer."},
+                                {"role": "user", "content": f"Task: {task}\n\nResults:\n{observations_text}\n\nSummary:"}
                             ],
                             temperature=0.5,
                             max_tokens=600
@@ -356,7 +367,7 @@ Next step (Thought then Action):"""
                 else:
                     final_answer = "Could not complete the task."
             else:
-                final_answer = "Could not process the task. Please try rephrasing."
+                final_answer = "Could not process the task."
 
         report = self._build_report(task, steps, final_answer, elapsed)
 
@@ -378,34 +389,28 @@ Next step (Thought then Action):"""
         else:
             tools_desc = self.get_tools_description()
 
-        prompt = f"""You are Spidey AI Agent. Create a step-by-step plan for this task.
+        prompt = f"""You are Spidey AI Agent. Create a step-by-step plan.
 
 {tools_desc}
 
 TASK: {task}
 
-Create a numbered plan (3-7 steps). For each step:
-- What to do
-- Which tool to use
-- Expected result
-
-Format each step as:
-Step 1: [Description] → Tool: [tool_name] with [params]
-Step 2: [Description] → Tool: [tool_name] with [params]
+Create a numbered plan (3-7 steps):
+Step 1: [Description] → Tool: [tool_name]
 ...
-Final: [How to combine everything into answer]"""
+Final: [How to combine results]"""
 
         try:
             result = self.brain.provider_manager.chat(
                 messages=[
-                    {"role": "system", "content": "You are a task planning assistant. Be specific about tools and parameters."},
+                    {"role": "system", "content": "You are a task planner. Be specific."},
                     {"role": "user", "content": prompt}
                 ],
                 temperature=0.3,
                 max_tokens=600
             )
 
-            plan = result.get("content", "Could not generate plan")
+            plan = result.get("content", "Could not plan")
 
             return (
                 f"\n📋 Task Plan\n"
@@ -416,7 +421,6 @@ Final: [How to combine everything into answer]"""
                 f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"💡 Run it: agent {task}"
             )
-
         except Exception as e:
             return f"⚠️ Planning error: {str(e)}"
 
@@ -430,10 +434,9 @@ Final: [How to combine everything into answer]"""
         ]
 
         for step in steps:
-            action_preview = step['action'][:60]
             lines.append(f"\n  Step {step['step']}:")
             lines.append(f"    💭 {step['thought'][:80]}")
-            lines.append(f"    🔧 {action_preview}")
+            lines.append(f"    🔧 {step['action'][:60]}")
 
         lines.append(f"\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         lines.append(f"\n📝 Result:\n{final_answer}")
@@ -442,58 +445,42 @@ Final: [How to combine everything into answer]"""
         return "\n".join(lines)
 
     def get_available_tools(self):
-        lines = [
-            "\n🔧 Agent Tools",
-            "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-        ]
-
+        lines = ["\n🔧 Agent Tools", "━" * 30]
         for name, info in self.tools.items():
             status = "✅" if info["instance"] or name in ["ai_think", "final_answer"] else "❌"
             lines.append(f"  {status} {name}: {info['description']}")
-
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-        lines.append("\n📌 Usage Examples:")
-        lines.append("  agent What is the weather in Karachi")
-        lines.append("  agent Tell me about Python from Wikipedia")
-        lines.append("  agent Search best laptops 2025 and summarize")
-        lines.append("  agent Weather in Lahore and suggest activities")
-        lines.append("  plan Search AI news and summarize")
-        lines.append("  agent tools")
-        lines.append("  agent registry")
-        lines.append("  agent info weather")
-        lines.append("  agent log")
-        lines.append("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-
+        lines.append("━" * 30)
+        lines.append("\n📌 Commands:")
+        lines.append("  agent <task>         — Execute task")
+        lines.append("  agent smart <task>   — Smart execute")
+        lines.append("  agent analyze <task> — Analyze only")
+        lines.append("  agent tools          — Show tools")
+        lines.append("  agent registry       — Detailed tools")
+        lines.append("  agent info <tool>    — Tool details")
+        lines.append("  agent log            — Last execution")
+        lines.append("  agent history        — All tasks")
+        lines.append("  plan <task>          — Plan only")
+        lines.append("━" * 30)
         return "\n".join(lines)
 
     def get_last_log(self):
         if not self.execution_log:
-            return "No execution log available. Run a task first!"
-
-        lines = ["\n📋 Last Execution Log", "━" * 40]
+            return "No log available. Run a task first!"
+        lines = ["\n📋 Last Log", "━" * 40]
         for step in self.execution_log:
             lines.append(f"\nStep {step['step']}:")
-            lines.append(f"  💭 Thought: {step['thought'][:120]}")
-            lines.append(f"  🔧 Action: {step['action'][:120]}")
+            lines.append(f"  💭 {step['thought'][:120]}")
+            lines.append(f"  🔧 {step['action'][:120]}")
             obs = step['observation'][:200].replace('\n', ' ')
-            lines.append(f"  👁️ Result: {obs}")
+            lines.append(f"  👁️ {obs}")
         lines.append("━" * 40)
-
         return "\n".join(lines)
 
     def get_task_history(self):
         if not self.task_history:
-            return "No tasks executed yet."
-
+            return "No tasks yet."
         lines = ["\n📋 Task History", "━" * 40]
         for i, t in enumerate(self.task_history, 1):
             lines.append(f"  {i}. {t['task'][:50]} — {t['steps']} steps, {t['time']:.1f}s")
         lines.append("━" * 40)
-
         return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    print("🕷️ ReAct Agent — This needs SpideyBrain to run")
-    print("Use: python -m spidey.main")
-    print("Then: agent <your task>")

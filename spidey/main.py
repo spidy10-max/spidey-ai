@@ -1,6 +1,6 @@
 """
-Spidey AI - Main (With Agent + Registry!)
-Day 45
+Spidey AI - Main (With Agent + Reasoning!)
+Day 46
 """
 from spidey.brain.chat import SpideyBrain
 from spidey.config import settings, APP_NAME, APP_VERSION, LOGS_DIR
@@ -20,6 +20,7 @@ def print_banner():
     print("   SPIDEY AI v" + APP_VERSION)
     print("=" * 55)
     print("   [AGENT]   agent <task> | plan <task> | agent tools")
+    print("   [AGENT]   agent smart <task> | agent analyze <task>")
     print("   [AGENT]   agent registry | agent info <tool>")
     print("   [AGENT]   agent log | agent history")
     print("   [VOICE]   spidey beta | v | speakmode")
@@ -122,19 +123,11 @@ def main():
                 continue
 
             if cmd == "agent log":
-                if hasattr(brain.agent, 'get_last_log'):
-                    print("\n" + brain.agent.get_last_log() + "\n")
-                elif hasattr(brain.agent, 'react_agent') and brain.agent.react_agent:
-                    print("\n" + brain.agent.react_agent.get_last_log() + "\n")
-                else:
-                    print("\n   No log available.\n")
+                print("\n" + brain.agent_log() + "\n")
                 continue
 
             if cmd == "agent history":
-                if hasattr(brain.agent, 'get_task_history'):
-                    print("\n" + brain.agent.get_task_history() + "\n")
-                else:
-                    print("\n   No history available.\n")
+                print("\n" + brain.agent_history() + "\n")
                 continue
 
             if cmd == "agent registry":
@@ -154,6 +147,31 @@ def main():
                     print(reg.display_tool(tool_name))
                 except Exception as e:
                     print(f"\n   Error: {e}\n")
+                continue
+
+            if cmd.startswith("agent analyze "):
+                task = user_input[14:].strip()
+                if task:
+                    try:
+                        result = brain.agent_analyze(task)
+                        print(result)
+                        print()
+                    except KeyboardInterrupt:
+                        print("\n   Cancelled!\n")
+                continue
+
+            if cmd.startswith("agent smart "):
+                task = user_input[12:].strip()
+                if task:
+                    try:
+                        print()
+                        result = brain.agent_smart_execute(task)
+                        print(result)
+                        print()
+                        if vm and vm.speak_enabled:
+                            vm.speak(result)
+                    except KeyboardInterrupt:
+                        print("\n   Cancelled!\n")
                 continue
 
             if cmd.startswith("agent "):

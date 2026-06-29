@@ -1,5 +1,6 @@
 """
-Spidey AI — Chat Brain (With Agent!)
+Spidey AI — Chat Brain (With Agent + Reasoning!)
+Day 46
 """
 from spidey.brain.providers import ProviderManager
 from spidey.memory.memory import SpideyMemory
@@ -162,8 +163,12 @@ class SpideyBrain:
 
     # Agent
     def agent_execute(self, task): return self.agent.execute(task)
+    def agent_smart_execute(self, task): return self.agent.smart_execute(task)
+    def agent_analyze(self, task): return self.agent.analyze(task)
     def agent_plan(self, task): return self.agent.plan_task(task)
     def agent_tools(self): return self.agent.get_available_tools()
+    def agent_log(self): return self.agent.get_last_log()
+    def agent_history(self): return self.agent.get_task_history()
 
     # Stats
     def get_stats(self):
